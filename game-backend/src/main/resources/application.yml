@@ -22,3 +22,5 @@ server:
 app:
   auth:
     token-ttl-hours: 2400
+  random-service:
+    base-url: ${RANDOM_SERVICE_URL:http://localhost:9095}
