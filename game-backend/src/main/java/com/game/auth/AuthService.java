@@ -56,6 +56,7 @@ public class AuthService {
         user.setId(UUID.randomUUID());
         user.setUsername(normalizedUsername);
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setRole(request.getRole());
         user.setCreatedAt(now);
         user.setUpdatedAt(now);
         userRepository.save(user);
@@ -122,6 +123,7 @@ public class AuthService {
         AuthResponse response = new AuthResponse();
         response.setUserId(user.getId());
         response.setUsername(user.getUsername());
+        response.setRole(user.getRole().name());
         response.setToken(session.getToken());
         response.setExpiresAt(session.getExpiresAt());
 

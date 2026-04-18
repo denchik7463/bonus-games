@@ -1,7 +1,9 @@
 package com.game.dto;
 
+import com.game.model.enums.UserRole;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 public class RegisterRequest {
@@ -16,6 +18,9 @@ public class RegisterRequest {
 
     @Min(0)
     private Long initialBalance;
+
+    @NotNull
+    private UserRole role;
 
     public String getUsername() {
         return username;
@@ -39,5 +44,13 @@ public class RegisterRequest {
 
     public void setInitialBalance(Long initialBalance) {
         this.initialBalance = initialBalance;
+    }
+
+    public UserRole getRole() {
+        return role;
+    }
+
+    public void setRole(UserRole role) {
+        this.role = role;
     }
 }

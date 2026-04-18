@@ -5,6 +5,7 @@ import java.util.UUID;
 public class ProfileResponse {
     private UUID userId;
     private String username;
+    private String role;
     private BalanceResponse balance;
 
     public UUID getUserId() {
@@ -21,6 +22,14 @@ public class ProfileResponse {
 
     public void setUsername(String username) {
         this.username = username;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
     }
 
     public BalanceResponse getBalance() {

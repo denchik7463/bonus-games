@@ -2,6 +2,8 @@ package com.game.controller;
 
 import com.game.service.lottery.LotteryService;
 import com.game.service.lottery.LotteryReportService;
+import com.game.model.enums.UserRole;
+import com.game.security.RoleGuard;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,6 +37,7 @@ public class LotteryController {
 
     @PostMapping("/test")
     public Map<String, Object> run(@RequestBody Map<String, Object> body) {
+        RoleGuard.requireAny(UserRole.EXPERT, UserRole.ADMIN);
         return lotteryService.run(body);
     }
 
@@ -50,6 +53,7 @@ public class LotteryController {
             @RequestParam(defaultValue = "") String boosted,
             HttpServletResponse response
     ) throws IOException {
+        RoleGuard.requireAny(UserRole.EXPERT, UserRole.ADMIN);
         Set<String> boostedSet = new HashSet<>(Arrays.stream(boosted.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())

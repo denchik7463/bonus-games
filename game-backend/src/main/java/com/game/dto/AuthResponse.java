@@ -6,6 +6,7 @@ import java.util.UUID;
 public class AuthResponse {
     private UUID userId;
     private String username;
+    private String role;
     private String token;
     private OffsetDateTime expiresAt;
     private BalanceResponse balance;
@@ -24,6 +25,14 @@ public class AuthResponse {
 
     public void setUsername(String username) {
         this.username = username;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
     }
 
     public String getToken() {

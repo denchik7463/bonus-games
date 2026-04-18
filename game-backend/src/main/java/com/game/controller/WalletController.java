@@ -6,6 +6,8 @@ import com.game.dto.FinalizeReservationRequest;
 import com.game.dto.ReservationResponse;
 import com.game.dto.ReserveRequest;
 import com.game.model.entity.User;
+import com.game.model.enums.UserRole;
+import com.game.security.RoleGuard;
 import com.game.security.UserContext;
 import com.game.service.wallet.WalletService;
 import jakarta.validation.Valid;
@@ -31,6 +33,7 @@ public class WalletController {
 
     @GetMapping("/balance")
     public BalanceResponse balance() {
+        RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
         User user = UserContext.getRequired();
         return walletService.getBalance(user);
     }
@@ -40,12 +43,14 @@ public class WalletController {
             @Valid @RequestBody DepositRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey
     ) {
+        RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
         User user = UserContext.getRequired();
         return walletService.deposit(user, request, idempotencyKey);
     }
 
     @PostMapping("/reserve")
     public ReservationResponse reserve(@Valid @RequestBody ReserveRequest request) {
+        RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
         User user = UserContext.getRequired();
         return walletService.reserve(user, request);
     }
@@ -55,6 +60,7 @@ public class WalletController {
             @PathVariable UUID reservationId,
             @Valid @RequestBody FinalizeReservationRequest request
     ) {
+        RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
         User user = UserContext.getRequired();
         return walletService.release(user, reservationId, request);
     }
@@ -64,6 +70,7 @@ public class WalletController {
             @PathVariable UUID reservationId,
             @Valid @RequestBody FinalizeReservationRequest request
     ) {
+        RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
         User user = UserContext.getRequired();
         return walletService.commit(user, reservationId, request);
     }

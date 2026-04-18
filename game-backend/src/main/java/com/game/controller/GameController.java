@@ -2,6 +2,8 @@ package com.game.controller;
 
 import com.game.dto.SelectWinnerRequest;
 import com.game.dto.SelectWinnerResponse;
+import com.game.model.enums.UserRole;
+import com.game.security.RoleGuard;
 import com.game.service.game.WinnerService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,6 +23,7 @@ public class GameController {
 
     @PostMapping("/winner")
     public SelectWinnerResponse selectWinner(@Valid @RequestBody SelectWinnerRequest request) {
+        RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
         return winnerService.selectWinner(request);
     }
 }

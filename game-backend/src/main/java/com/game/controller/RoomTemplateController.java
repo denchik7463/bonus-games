@@ -2,6 +2,8 @@ package com.game.controller;
 
 import com.game.model.dto.RoomTemplateRequest;
 import com.game.model.dto.RoomTemplateResponse;
+import com.game.model.enums.UserRole;
+import com.game.security.RoleGuard;
 import com.game.service.room.RoomConfigService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -29,28 +31,33 @@ public class RoomTemplateController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public RoomTemplateResponse createTemplate(@Valid @RequestBody RoomTemplateRequest request) {
+        RoleGuard.require(UserRole.ADMIN);
         return roomConfigService.createTemplate(request);
     }
 
     @PutMapping("/{id}")
     public RoomTemplateResponse updateTemplate(@PathVariable UUID id,
                                                @Valid @RequestBody RoomTemplateRequest request) {
+        RoleGuard.require(UserRole.ADMIN);
         return roomConfigService.updateTemplate(id, request);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteTemplate(@PathVariable UUID id) {
+        RoleGuard.require(UserRole.ADMIN);
         roomConfigService.deleteTemplate(id);
     }
 
     @GetMapping("/{id}")
     public RoomTemplateResponse getTemplateById(@PathVariable UUID id) {
+        RoleGuard.requireAny(UserRole.EXPERT, UserRole.ADMIN);
         return roomConfigService.getTemplateById(id);
     }
 
     @GetMapping
     public List<RoomTemplateResponse> getAllTemplates() {
+        RoleGuard.requireAny(UserRole.EXPERT, UserRole.ADMIN);
         return roomConfigService.getAllTemplates();
     }
 }
