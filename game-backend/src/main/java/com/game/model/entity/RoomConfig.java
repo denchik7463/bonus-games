@@ -50,6 +50,9 @@ public class RoomConfig {
     @Column(name = "max_players", nullable = false)
     private Integer maxPlayers;
 
+    @Column(name = "game_mechanic", nullable = false, length = 100)
+    private String gameMechanic;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

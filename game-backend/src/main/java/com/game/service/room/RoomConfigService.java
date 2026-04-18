@@ -33,6 +33,7 @@ public class RoomConfigService {
                 .bonusPrice(normalizeBonusPrice(request))
                 .bonusWeight(normalizeBonusWeight(request))
                 .maxPlayers(request.getMaxPlayers())
+                .gameMechanic(normalizeGameMechanic(request.getGameMechanic()))
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
@@ -56,6 +57,7 @@ public class RoomConfigService {
         roomConfig.setBonusPrice(normalizeBonusPrice(request));
         roomConfig.setBonusWeight(normalizeBonusWeight(request));
         roomConfig.setMaxPlayers(request.getMaxPlayers());
+        roomConfig.setGameMechanic(normalizeGameMechanic(request.getGameMechanic()));
         roomConfig.setUpdatedAt(LocalDateTime.now());
 
         return toResponse(roomConfigRepository.save(roomConfig));
@@ -98,6 +100,10 @@ public class RoomConfigService {
         return Boolean.TRUE.equals(request.getBonusEnabled()) ? request.getBonusWeight() : 0;
     }
 
+    private String normalizeGameMechanic(String gameMechanic) {
+        return gameMechanic == null ? null : gameMechanic.trim();
+    }
+
     private RoomTemplateResponse toResponse(RoomConfig roomConfig) {
         return RoomTemplateResponse.builder()
                 .id(roomConfig.getId())
@@ -108,6 +114,7 @@ public class RoomConfigService {
                 .bonusPrice(roomConfig.getBonusPrice())
                 .bonusWeight(roomConfig.getBonusWeight())
                 .maxPlayers(roomConfig.getMaxPlayers())
+                .gameMechanic(roomConfig.getGameMechanic())
                 .createdAt(roomConfig.getCreatedAt())
                 .updatedAt(roomConfig.getUpdatedAt())
                 .build();
