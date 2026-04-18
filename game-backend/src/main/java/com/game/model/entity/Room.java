@@ -1,17 +1,12 @@
 package com.game.model.entity;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
+import jakarta.persistence.*;
+import java.util.List;
 
-import java.time.LocalDateTime;
 import java.util.UUID;
+import java.time.LocalDateTime;
+
 
 @Entity
 @Table(name = "rooms")
@@ -51,4 +46,17 @@ public class Room {
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    // Связь с игроками
+    @OneToMany(mappedBy = "room", cascade = CascadeType.ALL)
+    private List<RoomPlayer> players;
+
+    public void addPlayer(RoomPlayer player) {
+        if (currentPlayers < maxPlayers) {
+            players.add(player);
+            currentPlayers++;
+        } else {
+            throw new RuntimeException("Room is full");
+        }
+    }
 }

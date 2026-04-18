@@ -6,6 +6,9 @@ import com.game.service.room.RoomService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import com.game.service.room.RoomService;
+import org.springframework.beans.factory.annotation.Autowired;
+
 import java.util.UUID;
 import java.util.List;
 
@@ -14,7 +17,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class RoomController {
 
-    private final RoomService roomService;
+    @Autowired
+    private final RoomService roomService; // Инжектим сервис через @Autowired
 
     @PostMapping("/create")
     public RoomResponse createRoom(@RequestBody CreateRoomRequest request) {
@@ -29,6 +33,11 @@ public class RoomController {
     @GetMapping("/{id}")
     public RoomResponse getRoomById(@PathVariable UUID id) {
         return roomService.getRoomById(id);
+    }
+
+    @PostMapping("/{roomId}/join/{playerId}")
+    public void joinRoom(@PathVariable UUID roomId, @PathVariable Long playerId) {
+        roomService.joinRoom(roomId, playerId);
     }
 
     @GetMapping
