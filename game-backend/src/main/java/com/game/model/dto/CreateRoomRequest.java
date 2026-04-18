@@ -1,8 +1,10 @@
 package com.game.model.dto;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
-@Data
+@Getter
+@Setter
 public class CreateRoomRequest {
 
     private Integer maxPlayers;

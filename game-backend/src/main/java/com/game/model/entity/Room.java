@@ -1,16 +1,12 @@
 package com.game.model.entity;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import jakarta.persistence.*;
+import lombok.*;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -51,4 +47,32 @@ public class Room {
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "first_player_joined_at")
+    private LocalDateTime firstPlayerJoinedAt;
+
+    @OneToMany(mappedBy = "room", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<RoomPlayer> players = new ArrayList<>();
+
+    public void addPlayer(RoomPlayer player) {
+        if (players == null) {
+            players = new ArrayList<>();
+        }
+        players.add(player);
+        player.setRoom(this);
+    }
+
+    public void startWaitingTimer() {
+        if (firstPlayerJoinedAt == null) {
+            firstPlayerJoinedAt = LocalDateTime.now();
+        }
+    }
+
+    public boolean hasTimedOut() {
+        if (firstPlayerJoinedAt == null || timerSeconds == null) {
+            return false;
+        }
+        return Duration.between(firstPlayerJoinedAt, LocalDateTime.now()).getSeconds() >= timerSeconds;
+    }
 }
