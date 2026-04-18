@@ -10,5 +10,4 @@ public class CreateRoomRequest {
     private Integer maxPlayers;
     private Integer entryCost;
     private Boolean boostAllowed;
-    private Integer timerSeconds;
 }

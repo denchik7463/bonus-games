@@ -25,8 +25,7 @@ public class RoomController {
         return roomService.createRoom(
                 request.getMaxPlayers(),
                 request.getEntryCost(),
-                request.getBoostAllowed(),
-                request.getTimerSeconds()
+                request.getBoostAllowed()
         );
     }
 

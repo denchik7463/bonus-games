@@ -70,9 +70,9 @@ public class Room {
     }
 
     public boolean hasTimedOut() {
-        if (firstPlayerJoinedAt == null || timerSeconds == null) {
+        if (firstPlayerJoinedAt == null) {
             return false;
         }
-        return Duration.between(firstPlayerJoinedAt, LocalDateTime.now()).getSeconds() >= timerSeconds;
+        return false;
     }
 }

@@ -27,8 +27,7 @@ public class RoomService {
 
     public RoomResponse createRoom(Integer maxPlayers,
                                    Integer entryCost,
-                                   Boolean boostAllowed,
-                                   Integer timerSeconds) {
+                                   Boolean boostAllowed) {
         if (maxPlayers == null || maxPlayers < 1 || maxPlayers > 10) {
             throw new IllegalArgumentException("Максимальное количество игроков должно быть от 1 до 10.");
         }
@@ -38,9 +37,6 @@ public class RoomService {
         if (boostAllowed == null) {
             throw new IllegalArgumentException("Поле 'boostAllowed' не может быть пустым.");
         }
-        if (timerSeconds == null || timerSeconds <= 0) {
-            throw new IllegalArgumentException("Таймер ожидания должен быть больше 0.");
-        }
 
         Room room = Room.builder()
                 .id(UUID.randomUUID())
@@ -48,7 +44,6 @@ public class RoomService {
                 .entryCost(entryCost)
                 .prizeFund(0)
                 .boostAllowed(boostAllowed)
-                .timerSeconds(timerSeconds)
                 .status("WAITING")
                 .currentPlayers(0)
                 .botCount(0)
@@ -56,8 +51,10 @@ public class RoomService {
                 .build();
 
         Room saved = roomRepository.save(room);
+
         return toResponse(saved);
     }
+
 
     public RoomResponse getRoomById(UUID id) {
         Room room = roomRepository.findById(id)
