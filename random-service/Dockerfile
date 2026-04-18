@@ -11,6 +11,6 @@ WORKDIR /app
 
 COPY --from=builder /app/target/random-service-1.0.0.jar app.jar
 
-EXPOSE 8080
+EXPOSE 9095
 
 ENTRYPOINT ["java", "-jar", "app.jar"]

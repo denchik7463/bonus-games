@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bonus-postgres
+    environment:
+      POSTGRES_DB: game_backend
+      POSTGRES_USER: game
+      POSTGRES_PASSWORD: game
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U game -d game_backend"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  random-service:
+    build:
+      context: ./random-service
+      dockerfile: Dockerfile
+    container_name: random-service
+    environment:
+      APP_HASH_SECRET: my-super-secret-key-change-me
+    ports:
+      - "9095:9095"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  game-backend:
+    build:
+      context: ./game-backend
+      dockerfile: Dockerfile
+    container_name: game-backend
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/game_backend
+      DB_USERNAME: game
+      DB_PASSWORD: game
+      RANDOM_SERVICE_URL: http://random-service:9095
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      random-service:
+        condition: service_started
+
+volumes:
+  postgres_data:

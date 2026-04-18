@@ -1,8 +1,0 @@
-services:
-  random-service:
-    build: .
-    container_name: random-service
-    ports:
-      - "9095:9095"
-    environment:
-      APP_HASH_SECRET: my-super-secret-key-change-me
