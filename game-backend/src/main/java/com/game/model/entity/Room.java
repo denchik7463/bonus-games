@@ -1,12 +1,13 @@
 package com.game.model.entity;
 
-import lombok.*;
 import jakarta.persistence.*;
-import java.util.List;
+import lombok.*;
 
-import java.util.UUID;
+import java.time.Duration;
 import java.time.LocalDateTime;
-
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Table(name = "rooms")
@@ -47,16 +48,31 @@ public class Room {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    // Связь с игроками
-    @OneToMany(mappedBy = "room", cascade = CascadeType.ALL)
-    private List<RoomPlayer> players;
+    @Column(name = "first_player_joined_at")
+    private LocalDateTime firstPlayerJoinedAt;
+
+    @OneToMany(mappedBy = "room", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<RoomPlayer> players = new ArrayList<>();
 
     public void addPlayer(RoomPlayer player) {
-        if (currentPlayers < maxPlayers) {
-            players.add(player);
-            currentPlayers++;
-        } else {
-            throw new RuntimeException("Room is full");
+        if (players == null) {
+            players = new ArrayList<>();
         }
+        players.add(player);
+        player.setRoom(this);
+    }
+
+    public void startWaitingTimer() {
+        if (firstPlayerJoinedAt == null) {
+            firstPlayerJoinedAt = LocalDateTime.now();
+        }
+    }
+
+    public boolean hasTimedOut() {
+        if (firstPlayerJoinedAt == null || timerSeconds == null) {
+            return false;
+        }
+        return Duration.between(firstPlayerJoinedAt, LocalDateTime.now()).getSeconds() >= timerSeconds;
     }
 }

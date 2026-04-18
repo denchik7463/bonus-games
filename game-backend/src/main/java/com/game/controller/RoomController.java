@@ -49,4 +49,11 @@ public class RoomController {
     public List<RoomResponse> getWaitingRooms() {
         return roomService.getWaitingRooms();
     }
+
+    @GetMapping("/filter")
+    public List<RoomResponse> filterRooms(@RequestParam(required = false) Integer maxPlayers,
+                                          @RequestParam(required = false) Integer entryCost,
+                                          @RequestParam(required = false) Boolean boostAllowed) {
+        return roomService.filterRooms(maxPlayers, entryCost, boostAllowed);
+    }
 }
