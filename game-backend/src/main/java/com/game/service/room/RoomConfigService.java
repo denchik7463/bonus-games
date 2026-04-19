@@ -82,6 +82,10 @@ public class RoomConfigService {
                 .toList();
     }
 
+    public List<Integer> getTemplateEntryCosts() {
+        return roomConfigRepository.findDistinctEntryCosts();
+    }
+
     private void validateUniqueTemplateName(String templateName) {
         if (roomConfigRepository.existsByTemplateNameIgnoreCase(templateName)) {
             throw new ConflictException("Room template with name '" + templateName + "' already exists");

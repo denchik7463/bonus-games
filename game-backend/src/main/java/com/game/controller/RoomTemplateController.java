@@ -49,6 +49,12 @@ public class RoomTemplateController {
         roomConfigService.deleteTemplate(id);
     }
 
+    @GetMapping("/entry-costs")
+    public List<Integer> getTemplateEntryCosts() {
+        RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
+        return roomConfigService.getTemplateEntryCosts();
+    }
+
     @GetMapping("/{id}")
     public RoomTemplateResponse getTemplateById(@PathVariable UUID id) {
         RoleGuard.requireAny(UserRole.EXPERT, UserRole.ADMIN);

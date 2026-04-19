@@ -1,34 +1,39 @@
 package com.game.model.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
 @Getter
 @Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
-public class GameResultResponse {
+public class CreateGameResultRequest {
 
-    private UUID id;
+    @NotNull
     private UUID roomId;
-    private Integer maxPlayers;
-    private Integer entryCost;
-    private Integer prizeFund;
-    private Boolean boostAllowed;
-    private Integer botCount;
-    private String roomStatus;
 
-    private String winnerPlayerExternalId;
-    private String winnerPlayerName;
-    private Integer winnerPositionIndex;
+    @NotNull
+    private Integer maxPlayers;
+
+    @NotNull
+    private Integer entryCost;
+
+    @NotNull
+    private Integer prizeFund;
+
+    @NotNull
+    private Boolean boostAllowed;
+
+    @NotNull
+    private Integer botCount;
+
+    @NotBlank
+    private String roomStatus;
 
     private Integer baseWeight;
     private Integer boostBonus;
@@ -37,21 +42,26 @@ public class GameResultResponse {
     private String randomHash;
     private String randomSeed;
 
-    private OffsetDateTime createdAt;
-    private List<PlayerResultResponse> participants;
+    @Valid
+    @NotEmpty
+    private List<PlayerInput> participants;
 
     @Getter
     @Setter
-    @NoArgsConstructor
-    @AllArgsConstructor
-    @Builder
-    public static class PlayerResultResponse {
-        private Integer positionIndex;
+    public static class PlayerInput {
+
+        @NotBlank
         private String playerExternalId;
+
+        @NotBlank
         private String username;
+
         private Boolean bot;
         private Boolean boostUsed;
+
+        @NotNull
         private Integer finalWeight;
+
         private Long balanceBefore;
         private Long balanceAfter;
         private Long balanceDelta;

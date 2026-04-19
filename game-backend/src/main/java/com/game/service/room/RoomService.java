@@ -6,6 +6,7 @@ import com.game.model.entity.Room;
 import com.game.model.entity.RoomPlayer;
 import com.game.repository.RoomPlayerRepository;
 import com.game.repository.RoomRepository;
+import com.game.service.game.RoundEventLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -24,6 +25,7 @@ public class RoomService {
 
     private final RoomRepository roomRepository;
     private final RoomPlayerRepository roomPlayerRepository;
+    private final RoundEventLogService roundEventLogService;
 
     public RoomResponse createRoom(Integer maxPlayers,
                                    Integer entryCost,
@@ -52,9 +54,19 @@ public class RoomService {
 
         Room saved = roomRepository.save(room);
 
+        roundEventLogService.logSystemEvent(
+                saved.getId(),
+                null,
+                "ROOM_CREATED",
+                "Комната создана",
+                "Создана новая игровая комната.",
+                "{\"maxPlayers\":" + saved.getMaxPlayers()
+                        + ",\"entryCost\":" + saved.getEntryCost()
+                        + ",\"boostAllowed\":" + saved.getBoostAllowed() + "}"
+        );
+
         return toResponse(saved);
     }
-
 
     public RoomResponse getRoomById(UUID id) {
         Room room = roomRepository.findById(id)
@@ -95,7 +107,9 @@ public class RoomService {
             throw new IllegalStateException("Комната полна, нет мест для присоединения.");
         }
 
-        if (room.getCurrentPlayers() == 0) {
+        boolean firstPlayer = room.getCurrentPlayers() == 0;
+
+        if (firstPlayer) {
             room.startWaitingTimer();
         }
 
@@ -111,6 +125,40 @@ public class RoomService {
 
         roomPlayerRepository.save(roomPlayer);
         roomRepository.save(room);
+
+        if (firstPlayer) {
+            roundEventLogService.logSystemEvent(
+                    room.getId(),
+                    null,
+                    "WAITING_TIMER_STARTED",
+                    "Запущен таймер ожидания",
+                    "После входа первого игрока запущен таймер ожидания комнаты.",
+                    null
+            );
+        }
+
+        roundEventLogService.logSystemEvent(
+                room.getId(),
+                null,
+                "PLAYER_JOINED",
+                "Игрок вошёл в комнату",
+                "Игрок присоединился к игровой комнате.",
+                "{\"playerId\":" + playerId
+                        + ",\"currentPlayers\":" + room.getCurrentPlayers()
+                        + ",\"maxPlayers\":" + room.getMaxPlayers() + "}"
+        );
+
+        if (room.getCurrentPlayers().equals(room.getMaxPlayers())) {
+            roundEventLogService.logSystemEvent(
+                    room.getId(),
+                    null,
+                    "ROOM_FILLED",
+                    "Комната заполнена",
+                    "Все места в комнате заняты.",
+                    "{\"currentPlayers\":" + room.getCurrentPlayers()
+                            + ",\"maxPlayers\":" + room.getMaxPlayers() + "}"
+            );
+        }
     }
 
     private RoomResponse toResponse(Room room) {
@@ -129,7 +177,6 @@ public class RoomService {
     }
 
     public List<RoomResponse> filterRooms(Integer maxPlayers, Integer entryCost, Boolean boostAllowed) {
-        System.out.println("Фильтрация: maxPlayers=" + maxPlayers + ", entryCost=" + entryCost + ", boostAllowed=" + boostAllowed);
         return roomRepository.findAll()
                 .stream()
                 .filter(room -> (maxPlayers == null || room.getMaxPlayers().equals(maxPlayers)) &&
