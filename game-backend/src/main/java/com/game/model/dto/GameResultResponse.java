@@ -39,6 +39,7 @@ public class GameResultResponse {
 
     private OffsetDateTime createdAt;
     private List<PlayerResultResponse> participants;
+    private List<RoundEventResponse> events;
 
     @Getter
     @Setter

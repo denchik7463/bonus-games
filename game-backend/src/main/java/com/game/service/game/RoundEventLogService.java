@@ -8,8 +8,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -47,6 +50,18 @@ public class RoundEventLogService {
                 .stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Map<UUID, List<RoundEventResponse>> getByGameResultIds(List<UUID> gameResultIds) {
+        if (gameResultIds == null || gameResultIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        return roundEventLogRepository.findByGameResultIdInOrderByCreatedAtAsc(gameResultIds)
+                .stream()
+                .map(this::toResponse)
+                .collect(Collectors.groupingBy(RoundEventResponse::getGameResultId));
     }
 
     @Transactional(readOnly = true)

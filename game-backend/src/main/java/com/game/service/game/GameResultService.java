@@ -4,6 +4,7 @@ import com.game.exception.ForbiddenException;
 import com.game.exception.NotFoundException;
 import com.game.model.dto.CreateGameResultRequest;
 import com.game.model.dto.GameResultResponse;
+import com.game.model.dto.RoundEventResponse;
 import com.game.model.entity.GameResult;
 import com.game.model.entity.GameResultPlayer;
 import com.game.model.entity.User;
@@ -14,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -98,7 +100,7 @@ public class GameResultService {
                         + ",\"totalWeight\":" + valueOrNull(saved.getTotalWeight()) + "}"
         );
 
-        return toResponse(saved);
+        return toResponseWithEvents(saved);
     }
 
     @Transactional(readOnly = true)
@@ -106,9 +108,14 @@ public class GameResultService {
         List<GameResult> results = roomId == null
                 ? gameResultRepository.findAllByOrderByCreatedAtDesc()
                 : gameResultRepository.findByRoomIdOrderByCreatedAtDesc(roomId);
+        Map<UUID, List<RoundEventResponse>> eventsByResult = roundEventLogService.getByGameResultIds(
+                results.stream()
+                        .map(GameResult::getId)
+                        .toList()
+        );
 
         return results.stream()
-                .map(this::toResponse)
+                .map(result -> toResponse(result, eventsByResult.getOrDefault(result.getId(), List.of())))
                 .toList();
     }
 
@@ -117,7 +124,7 @@ public class GameResultService {
         GameResult result = gameResultRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Game result not found: " + id));
 
-        return toResponse(result);
+        return toResponseWithEvents(result);
     }
 
     @Transactional(readOnly = true)
@@ -135,7 +142,7 @@ public class GameResultService {
         GameResult result = gameResultRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Game result not found: " + id));
 
-        return toResponse(result);
+        return toResponseWithEvents(result);
     }
 
     @Transactional(readOnly = true)
@@ -187,7 +194,15 @@ public class GameResultService {
         }
     }
 
+    private GameResultResponse toResponseWithEvents(GameResult gameResult) {
+        return toResponse(gameResult, roundEventLogService.getByGameResultId(gameResult.getId()));
+    }
+
     private GameResultResponse toResponse(GameResult gameResult) {
+        return toResponse(gameResult, List.of());
+    }
+
+    private GameResultResponse toResponse(GameResult gameResult, List<RoundEventResponse> events) {
         return GameResultResponse.builder()
                 .id(gameResult.getId())
                 .roomId(gameResult.getRoomId())
@@ -222,6 +237,7 @@ public class GameResultService {
                                 .winner(player.getWinner())
                                 .build())
                         .toList())
+                .events(events)
                 .build();
     }
 
