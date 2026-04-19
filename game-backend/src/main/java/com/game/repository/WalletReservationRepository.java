@@ -16,4 +16,8 @@ public interface WalletReservationRepository extends JpaRepository<WalletReserva
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from WalletReservation r where r.id = :id and r.userId = :userId")
     Optional<WalletReservation> findByIdAndUserIdForUpdate(UUID id, UUID userId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from WalletReservation r where r.id = :id")
+    Optional<WalletReservation> findByIdForUpdate(UUID id);
 }

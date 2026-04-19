@@ -51,6 +51,12 @@ public class Room {
     @Column(name = "first_player_joined_at")
     private LocalDateTime firstPlayerJoinedAt;
 
+    @Column(name = "started_at")
+    private LocalDateTime startedAt;
+
+    @Column(name = "finished_at")
+    private LocalDateTime finishedAt;
+
     @OneToMany(mappedBy = "room", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<RoomPlayer> players = new ArrayList<>();
@@ -70,9 +76,12 @@ public class Room {
     }
 
     public boolean hasTimedOut() {
-        if (firstPlayerJoinedAt == null) {
+        if (createdAt == null) {
             return false;
         }
-        return false;
+        if (timerSeconds == null || timerSeconds <= 0) {
+            return false;
+        }
+        return Duration.between(createdAt, LocalDateTime.now()).getSeconds() >= timerSeconds;
     }
 }

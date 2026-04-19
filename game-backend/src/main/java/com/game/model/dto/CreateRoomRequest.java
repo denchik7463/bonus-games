@@ -2,12 +2,14 @@ package com.game.model.dto;
 
 import lombok.Getter;
 import lombok.Setter;
+import jakarta.validation.constraints.NotNull;
+
+import java.util.UUID;
 
 @Getter
 @Setter
 public class CreateRoomRequest {
 
-    private Integer maxPlayers;
-    private Integer entryCost;
-    private Boolean boostAllowed;
+    @NotNull
+    private UUID templateId;
 }

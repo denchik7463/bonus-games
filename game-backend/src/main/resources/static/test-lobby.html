@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Game Test Lobby</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #121a2b;
+      --line: #24324b;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --ok: #16a34a;
+      --warn: #d97706;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at 10% 0%, #1e293b 0%, var(--bg) 45%);
+      padding: 20px;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    .panel {
+      background: rgba(18, 26, 43, 0.95);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    h1, h2 { margin: 0 0 10px; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 16px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 8px;
+    }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+    input, select, button, textarea {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid #334155;
+      background: #0b1220;
+      color: var(--text);
+      padding: 9px 10px;
+    }
+    button { cursor: pointer; border: none; font-weight: 600; }
+    .btn-ok { background: linear-gradient(90deg, #15803d, #22c55e); }
+    .btn-warn { background: linear-gradient(90deg, #b45309, #f59e0b); }
+    .btn-neutral { background: linear-gradient(90deg, #334155, #475569); }
+    .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .status { font-size: 13px; margin-top: 8px; }
+    pre {
+      margin: 0;
+      max-height: 320px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #0b1220;
+      padding: 10px;
+      font-size: 12px;
+    }
+    .ok { color: #4ade80; }
+    .bad { color: #f87171; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel">
+    <h1>Game Test Lobby</h1>
+    <p class="muted">Открой эту страницу в двух браузерах, войди под разными пользователями и тестируй комнату в реальном времени.</p>
+    <div class="grid">
+      <div>
+        <label>Backend URL</label>
+        <input id="baseUrl" value="http://localhost:8081" />
+      </div>
+      <div>
+        <label>Refresh (sec)</label>
+        <input id="refreshSec" value="2" />
+      </div>
+      <div>
+        <label>Room ID</label>
+        <input id="roomId" placeholder="вставь UUID комнаты" />
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>1) Auth</h2>
+    <div class="grid">
+      <div>
+        <label>Username</label>
+        <input id="username" placeholder="alice" />
+      </div>
+      <div>
+        <label>Password</label>
+        <input id="password" type="password" value="secret123" />
+      </div>
+      <div>
+        <label>Role (register)</label>
+        <select id="role">
+          <option value="USER">USER</option>
+          <option value="EXPERT">EXPERT</option>
+          <option value="ADMIN">ADMIN</option>
+        </select>
+      </div>
+      <div>
+        <label>Initial balance (register)</label>
+        <input id="initialBalance" type="number" value="1000" />
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <button class="btn-ok" onclick="registerUser()">Register</button>
+      <button class="btn-ok" onclick="loginUser()">Login</button>
+      <button class="btn-neutral" onclick="whoAmI()">Profile /me</button>
+    </div>
+    <div id="authStatus" class="status muted">Не авторизован</div>
+  </div>
+
+  <div class="panel">
+    <h2>2) Room Actions</h2>
+    <div class="grid">
+      <div>
+        <label>Template ID</label>
+        <input id="templateId" placeholder="UUID template" />
+      </div>
+      <div>
+        <label>Use boost (join)</label>
+        <select id="boostUsed"><option value="false">false</option><option value="true">true</option></select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <button class="btn-ok" onclick="createRoom()">Create room</button>
+      <button class="btn-ok" onclick="joinRoom()">Join room</button>
+      <button class="btn-warn" onclick="finishRoom()">Finish room (admin/expert)</button>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <button class="btn-neutral" onclick="loadTemplates()">Load templates</button>
+      <button class="btn-neutral" onclick="refreshOnce()">Refresh state/events</button>
+      <button class="btn-neutral" onclick="toggleAutoRefresh()">Start/Stop auto refresh</button>
+      <button class="btn-neutral" onclick="walletBalance()">Wallet balance</button>
+    </div>
+    <div id="roomStatus" class="status muted">Ожидаю действий</div>
+  </div>
+
+  <div class="panel">
+    <h2>Templates</h2>
+    <pre id="templatesView">[]</pre>
+  </div>
+
+  <div class="panel">
+    <h2>Active Rooms</h2>
+    <div class="row" style="margin-top:8px;">
+      <button class="btn-neutral" onclick="loadActiveRooms()">Refresh active rooms</button>
+      <button class="btn-neutral" onclick="loadActiveRoomsAndStart()">Auto refresh active rooms</button>
+      <button class="btn-neutral" onclick="stopActiveRoomsRefresh()">Stop active rooms refresh</button>
+    </div>
+    <div style="overflow:auto; margin-top:8px;">
+      <table style="width:100%; border-collapse:collapse; font-size:12px;">
+        <thead>
+          <tr>
+            <th style="text-align:left; border-bottom:1px solid #24324b; padding:6px;">Room ID</th>
+            <th style="text-align:left; border-bottom:1px solid #24324b; padding:6px;">Status</th>
+            <th style="text-align:left; border-bottom:1px solid #24324b; padding:6px;">Players</th>
+            <th style="text-align:left; border-bottom:1px solid #24324b; padding:6px;">Entry</th>
+            <th style="text-align:left; border-bottom:1px solid #24324b; padding:6px;">Prize</th>
+            <th style="text-align:left; border-bottom:1px solid #24324b; padding:6px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="activeRoomsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Room State</h2>
+    <pre id="stateView">{}</pre>
+  </div>
+
+  <div class="panel">
+    <h2>Room Events</h2>
+    <pre id="eventsView">[]</pre>
+  </div>
+
+  <div class="panel">
+    <h2>Last API Response</h2>
+    <pre id="lastResponse">-</pre>
+  </div>
+</div>
+
+<script>
+  const storageKey = 'game_test_lobby_token';
+  let autoTimer = null;
+  let activeRoomsTimer = null;
+
+  function getToken() { return localStorage.getItem(storageKey) || ''; }
+  function setToken(v) { localStorage.setItem(storageKey, v); }
+
+  function baseUrl() {
+    return document.getElementById('baseUrl').value.trim().replace(/\/$/, '');
+  }
+
+  function url(path) {
+    return `${baseUrl()}${path}`;
+  }
+
+  function headers(isJson = true) {
+    const h = {};
+    const token = getToken();
+    if (token) h['Authorization'] = `Bearer ${token}`;
+    if (isJson) h['Content-Type'] = 'application/json';
+    return h;
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch(url(path), {
+      ...options,
+      headers: { ...headers(true), ...(options.headers || {}) }
+    });
+    const text = await res.text();
+    let payload;
+    try { payload = text ? JSON.parse(text) : {}; } catch { payload = { raw: text }; }
+    document.getElementById('lastResponse').textContent = JSON.stringify(payload, null, 2);
+    if (!res.ok) throw payload;
+    return payload;
+  }
+
+  function setAuthStatus(text, ok = true) {
+    const el = document.getElementById('authStatus');
+    el.textContent = text;
+    el.className = ok ? 'status ok' : 'status bad';
+  }
+
+  function setRoomStatus(text, ok = true) {
+    const el = document.getElementById('roomStatus');
+    el.textContent = text;
+    el.className = ok ? 'status ok' : 'status bad';
+  }
+
+  async function registerUser() {
+    try {
+      const body = {
+        username: document.getElementById('username').value.trim(),
+        password: document.getElementById('password').value,
+        role: document.getElementById('role').value,
+        initialBalance: Number(document.getElementById('initialBalance').value || 0)
+      };
+      const data = await api('/api/auth/register', { method: 'POST', body: JSON.stringify(body) });
+      setToken(data.token);
+      setAuthStatus(`Registered: ${data.username} (${data.role})`);
+    } catch (e) {
+      setAuthStatus(`Register error: ${e.message || JSON.stringify(e)}`, false);
+    }
+  }
+
+  async function loginUser() {
+    try {
+      const body = {
+        username: document.getElementById('username').value.trim(),
+        password: document.getElementById('password').value
+      };
+      const data = await api('/api/auth/login', { method: 'POST', body: JSON.stringify(body) });
+      setToken(data.token);
+      setAuthStatus(`Login OK: ${data.username} (${data.role})`);
+    } catch (e) {
+      setAuthStatus(`Login error: ${e.message || JSON.stringify(e)}`, false);
+    }
+  }
+
+  async function whoAmI() {
+    try {
+      const data = await api('/api/profile/me', { method: 'GET' });
+      setAuthStatus(`User: ${data.username}, role: ${data.role || 'N/A'}`);
+    } catch (e) {
+      setAuthStatus(`Profile error: ${e.message || JSON.stringify(e)}`, false);
+    }
+  }
+
+  async function createRoom() {
+    try {
+      const templateId = document.getElementById('templateId').value.trim();
+      if (!templateId) throw new Error('Template ID is empty');
+      const body = {
+        templateId
+      };
+      const data = await api('/api/rooms/create', { method: 'POST', body: JSON.stringify(body) });
+      document.getElementById('roomId').value = data.id;
+      setRoomStatus(`Room created: ${data.id}`);
+      await refreshOnce();
+    } catch (e) {
+      setRoomStatus(`Create room error: ${e.message || JSON.stringify(e)}`, false);
+    }
+  }
+
+  async function joinRoom() {
+    try {
+      const roomId = document.getElementById('roomId').value.trim();
+      if (!roomId) throw new Error('Room ID is empty');
+      const body = { boostUsed: document.getElementById('boostUsed').value === 'true' };
+      const data = await api(`/api/rooms/${roomId}/join`, { method: 'POST', body: JSON.stringify(body) });
+      setRoomStatus(`Joined room. reservationId=${data.reservationId}`);
+      await refreshOnce();
+    } catch (e) {
+      setRoomStatus(`Join error: ${e.message || JSON.stringify(e)}`, false);
+    }
+  }
+
+  async function finishRoom() {
+    try {
+      const roomId = document.getElementById('roomId').value.trim();
+      if (!roomId) throw new Error('Room ID is empty');
+      const data = await api(`/api/rooms/${roomId}/finish`, { method: 'POST', body: JSON.stringify({ baseWeight: 100, boostBonus: 10 }) });
+      setRoomStatus(`Winner: ${data.winnerUsername}, prize=${data.prizeFund}`);
+      await refreshOnce();
+    } catch (e) {
+      setRoomStatus(`Finish error: ${e.message || JSON.stringify(e)}`, false);
+    }
+  }
+
+  async function walletBalance() {
+    try {
+      const data = await api('/api/wallet/balance', { method: 'GET' });
+      setRoomStatus(`Balance: available=${data.available}, reserved=${data.reserved}, total=${data.total}`);
+    } catch (e) {
+      setRoomStatus(`Balance error: ${e.message || JSON.stringify(e)}`, false);
+    }
+  }
+
+  async function loadTemplates() {
+    try {
+      const data = await api('/api/room-templates', { method: 'GET' });
+      document.getElementById('templatesView').textContent = JSON.stringify(data, null, 2);
+      setRoomStatus(`Templates loaded: ${(data || []).length}`);
+    } catch (e) {
+      setRoomStatus(`Templates error: ${e.message || JSON.stringify(e)}`, false);
+    }
+  }
+
+  async function refreshOnce() {
+    try {
+      const roomId = document.getElementById('roomId').value.trim();
+      if (!roomId) return;
+      const [state, events] = await Promise.all([
+        api(`/api/rooms/${roomId}/state`, { method: 'GET' }),
+        api(`/api/rooms/${roomId}/events`, { method: 'GET' })
+      ]);
+      document.getElementById('stateView').textContent = JSON.stringify(state, null, 2);
+      document.getElementById('eventsView').textContent = JSON.stringify(events, null, 2);
+    } catch (e) {
+      setRoomStatus(`Refresh error: ${e.message || JSON.stringify(e)}`, false);
+    }
+  }
+
+  function isActiveRoom(room) {
+    return room && (room.status === 'WAITING' || room.status === 'FULL');
+  }
+
+  async function loadActiveRooms() {
+    try {
+      const rooms = await api('/api/rooms', { method: 'GET' });
+      const activeRooms = (rooms || []).filter(isActiveRoom);
+      const tbody = document.getElementById('activeRoomsBody');
+      tbody.innerHTML = '';
+
+      activeRooms.forEach(room => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="border-bottom:1px solid #24324b; padding:6px;"><code>${room.id}</code></td>
+          <td style="border-bottom:1px solid #24324b; padding:6px;">${room.status}</td>
+          <td style="border-bottom:1px solid #24324b; padding:6px;">${room.currentPlayers}/${room.maxPlayers}</td>
+          <td style="border-bottom:1px solid #24324b; padding:6px;">${room.entryCost}</td>
+          <td style="border-bottom:1px solid #24324b; padding:6px;">${room.prizeFund}</td>
+          <td style="border-bottom:1px solid #24324b; padding:6px;">
+            <button class=\"btn-neutral\" data-action=\"use\" data-room-id=\"${room.id}\" style=\"width:auto; margin-right:4px; padding:6px 8px;\">Use</button>
+            <button class=\"btn-ok\" data-action=\"join\" data-room-id=\"${room.id}\" style=\"width:auto; padding:6px 8px;\">Join</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll('button[data-action=\"use\"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.getElementById('roomId').value = btn.dataset.roomId || '';
+          setRoomStatus(`Room selected: ${btn.dataset.roomId}`);
+        });
+      });
+      tbody.querySelectorAll('button[data-action=\"join\"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          document.getElementById('roomId').value = btn.dataset.roomId || '';
+          await joinRoom();
+        });
+      });
+
+      setRoomStatus(`Active rooms: ${activeRooms.length}`);
+    } catch (e) {
+      setRoomStatus(`Active rooms error: ${e.message || JSON.stringify(e)}`, false);
+    }
+  }
+
+  function loadActiveRoomsAndStart() {
+    if (activeRoomsTimer) clearInterval(activeRoomsTimer);
+    loadActiveRooms();
+    const sec = Math.max(1, Number(document.getElementById('refreshSec').value || 2));
+    activeRoomsTimer = setInterval(loadActiveRooms, sec * 1000);
+    setRoomStatus(`Active rooms auto refresh every ${sec}s`);
+  }
+
+  function stopActiveRoomsRefresh() {
+    if (activeRoomsTimer) {
+      clearInterval(activeRoomsTimer);
+      activeRoomsTimer = null;
+      setRoomStatus('Active rooms auto refresh stopped');
+    }
+  }
+
+  function toggleAutoRefresh() {
+    if (autoTimer) {
+      clearInterval(autoTimer);
+      autoTimer = null;
+      setRoomStatus('Auto refresh stopped');
+      return;
+    }
+    const sec = Math.max(1, Number(document.getElementById('refreshSec').value || 2));
+    autoTimer = setInterval(refreshOnce, sec * 1000);
+    setRoomStatus(`Auto refresh every ${sec}s`);
+    refreshOnce();
+  }
+
+  if (getToken()) {
+    setAuthStatus('Токен найден в localStorage, можно нажать Profile /me');
+  }
+</script>
+</body>
+</html>
