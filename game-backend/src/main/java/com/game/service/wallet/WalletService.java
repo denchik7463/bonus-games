@@ -303,6 +303,35 @@ public class WalletService {
         return toBalance(account);
     }
 
+    @Transactional
+    public BalanceResponse chargeBoost(UUID userId, long amount, String operationId, String description) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Boost amount must be > 0");
+        }
+
+        WalletAccount account = walletAccountRepository.findByUserIdForUpdate(userId)
+                .orElseThrow(() -> new NotFoundException("Wallet not found"));
+
+        if (account.getAvailableBalance() < amount) {
+            throw new InsufficientBalanceException("Insufficient balance to activate boost");
+        }
+
+        account.setAvailableBalance(account.getAvailableBalance() - amount);
+        account.setUpdatedAt(OffsetDateTime.now());
+        walletAccountRepository.save(account);
+
+        createTransaction(
+                userId,
+                null,
+                TransactionType.BOOST_PURCHASE,
+                amount,
+                description == null ? "Boost activation" : description,
+                operationId
+        );
+
+        return toBalance(account);
+    }
+
     private WalletReservation getOwnedReservation(User user, UUID reservationId) {
         return walletReservationRepository.findByIdAndUserIdForUpdate(reservationId, user.getId())
                 .orElseThrow(() -> new NotFoundException("Reservation not found"));

@@ -21,6 +21,9 @@ public class Room {
     @Id
     private UUID id;
 
+    @Column(name = "template_id")
+    private UUID templateId;
+
     @Column(name = "max_players", nullable = false)
     private Integer maxPlayers;
 

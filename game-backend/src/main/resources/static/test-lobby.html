@@ -136,12 +136,14 @@
     <div class="row" style="margin-top:8px;">
       <button class="btn-ok" onclick="createRoom()">Create room</button>
       <button class="btn-ok" onclick="joinRoom()">Join room</button>
-      <button class="btn-warn" onclick="finishRoom()">Finish room (admin/expert)</button>
+      <button class="btn-ok" onclick="joinByTemplate()">Join by template</button>
     </div>
     <div class="row" style="margin-top:8px;">
       <button class="btn-neutral" onclick="loadTemplates()">Load templates</button>
+      <button class="btn-neutral" onclick="activateBoost()">Activate boost</button>
       <button class="btn-neutral" onclick="refreshOnce()">Refresh state/events</button>
       <button class="btn-neutral" onclick="toggleAutoRefresh()">Start/Stop auto refresh</button>
+      <button class="btn-warn" onclick="finishRoom()">Finish room (admin/expert)</button>
       <button class="btn-neutral" onclick="walletBalance()">Wallet balance</button>
     </div>
     <div id="roomStatus" class="status muted">Ожидаю действий</div>
@@ -306,6 +308,34 @@
       await refreshOnce();
     } catch (e) {
       setRoomStatus(`Join error: ${e.message || JSON.stringify(e)}`, false);
+    }
+  }
+
+  async function joinByTemplate() {
+    try {
+      const templateId = document.getElementById('templateId').value.trim();
+      if (!templateId) throw new Error('Template ID is empty');
+      const data = await api('/api/rooms/join-by-template', {
+        method: 'POST',
+        body: JSON.stringify({ templateId })
+      });
+      document.getElementById('roomId').value = data.roomId;
+      setRoomStatus(`Joined by template. roomId=${data.roomId}, reservationId=${data.reservationId}`);
+      await refreshOnce();
+    } catch (e) {
+      setRoomStatus(`Join-by-template error: ${e.message || JSON.stringify(e)}`, false);
+    }
+  }
+
+  async function activateBoost() {
+    try {
+      const roomId = document.getElementById('roomId').value.trim();
+      if (!roomId) throw new Error('Room ID is empty');
+      const data = await api(`/api/rooms/${roomId}/boost/activate`, { method: 'POST', body: JSON.stringify({}) });
+      setRoomStatus(`Boost activated. price=${data.boostPrice}, weight=${data.boostWeight}`);
+      await refreshOnce();
+    } catch (e) {
+      setRoomStatus(`Boost error: ${e.message || JSON.stringify(e)}`, false);
     }
   }
 

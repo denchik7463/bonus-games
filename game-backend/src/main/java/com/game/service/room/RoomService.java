@@ -8,6 +8,8 @@ import com.game.exception.NotFoundException;
 import com.game.model.dto.CreateRoomRequest;
 import com.game.model.dto.FinishRoomRequest;
 import com.game.model.dto.FinishRoomResponse;
+import com.game.model.dto.BoostActivationResponse;
+import com.game.model.dto.JoinByTemplateRequest;
 import com.game.model.dto.JoinRoomRequest;
 import com.game.model.dto.JoinRoomResponse;
 import com.game.model.dto.RoomPlayerResponse;
@@ -29,6 +31,7 @@ import com.game.service.wallet.WalletService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -58,26 +61,7 @@ public class RoomService {
 
     @Transactional
     public RoomResponse createRoom(CreateRoomRequest request) {
-        RoomConfig template = roomConfigRepository.findById(request.getTemplateId())
-                .orElseThrow(() -> new NotFoundException("Room template not found: " + request.getTemplateId()));
-        if (!Boolean.TRUE.equals(template.getActive())) {
-            throw new IllegalArgumentException("Room template is not active: " + request.getTemplateId());
-        }
-
-        Room room = Room.builder()
-                .id(UUID.randomUUID())
-                .maxPlayers(template.getMaxPlayers())
-                .entryCost(template.getEntryCost())
-                .prizeFund(0)
-                .boostAllowed(template.getBonusEnabled())
-                .timerSeconds(ROOM_TIMER_SECONDS)
-                .status(STATUS_WAITING)
-                .currentPlayers(0)
-                .botCount(0)
-                .createdAt(LocalDateTime.now())
-                .build();
-
-        Room saved = roomRepository.save(room);
+        Room saved = roomRepository.save(newRoomFromTemplate(request.getTemplateId()));
         roundEventLogService.logSystemEvent(
                 saved.getId(),
                 null,
@@ -91,6 +75,86 @@ public class RoomService {
         );
 
         return toResponse(saved);
+    }
+
+    @Transactional
+    public JoinRoomResponse joinByTemplate(JoinByTemplateRequest request, User user) {
+        UUID templateId = request.getTemplateId();
+        Room room = roomRepository.findJoinableWaitingRoomsByTemplateIdForUpdate(templateId, PageRequest.of(0, 1))
+                .stream()
+                .findFirst()
+                .orElseGet(() -> roomRepository.save(newRoomFromTemplate(templateId)));
+
+        return joinRoom(room.getId(), user, null);
+    }
+
+    @Transactional
+    public BoostActivationResponse activateBoost(UUID roomId, User user) {
+        Room room = findRoom(roomId);
+        if (STATUS_FINISHED.equals(room.getStatus()) || STATUS_CANCELLED.equals(room.getStatus())) {
+            throw new IllegalArgumentException("Room is already closed");
+        }
+        if (!Boolean.TRUE.equals(room.getBoostAllowed())) {
+            throw new IllegalArgumentException("Boost is not allowed in this room");
+        }
+        if (room.getTemplateId() == null) {
+            throw new IllegalArgumentException("Room template is not linked");
+        }
+
+        RoomPlayer roomPlayer = roomPlayerRepository.findByRoomIdAndUserIdForUpdate(roomId, user.getId())
+                .orElseThrow(() -> new NotFoundException("User is not in this room"));
+        if (Boolean.TRUE.equals(roomPlayer.getBoostUsed())) {
+            return BoostActivationResponse.builder()
+                    .roomId(roomId)
+                    .userId(user.getId())
+                    .username(user.getUsername())
+                    .boostUsed(true)
+                    .boostPrice(0)
+                    .boostWeight(0)
+                    .balance(walletService.getBalanceByUserId(user.getId()))
+                    .build();
+        }
+
+        RoomConfig template = roomConfigRepository.findById(room.getTemplateId())
+                .orElseThrow(() -> new NotFoundException("Room template not found: " + room.getTemplateId()));
+        if (!Boolean.TRUE.equals(template.getBonusEnabled())) {
+            throw new IllegalArgumentException("Bonus is disabled in this template");
+        }
+        if (template.getBonusPrice() == null || template.getBonusPrice() <= 0) {
+            throw new IllegalArgumentException("Bonus price must be > 0");
+        }
+
+        BalanceResponse balance = walletService.chargeBoost(
+                user.getId(),
+                template.getBonusPrice(),
+                "room-boost:" + roomId + ":" + user.getId(),
+                "Boost activation in room " + roomId
+        );
+
+        roomPlayer.setBoostUsed(true);
+        roomPlayerRepository.save(roomPlayer);
+
+        roundEventLogService.logSystemEvent(
+                room.getId(),
+                null,
+                "BOOST_ACTIVATED",
+                "Буст активирован",
+                "Игрок активировал буст в комнате.",
+                "{\"userId\":\"" + user.getId()
+                        + "\",\"username\":\"" + escapeJson(user.getUsername())
+                        + "\",\"boostPrice\":" + template.getBonusPrice()
+                        + ",\"boostWeight\":" + template.getBonusWeight() + "}"
+        );
+
+        return BoostActivationResponse.builder()
+                .roomId(room.getId())
+                .userId(user.getId())
+                .username(user.getUsername())
+                .boostUsed(true)
+                .boostPrice(template.getBonusPrice())
+                .boostWeight(template.getBonusWeight())
+                .balance(balance)
+                .build();
     }
 
     @Transactional(readOnly = true)
@@ -431,6 +495,7 @@ public class RoomService {
     private RoomResponse toResponse(Room room) {
         return RoomResponse.builder()
                 .id(room.getId())
+                .templateId(room.getTemplateId())
                 .maxPlayers(room.getMaxPlayers())
                 .entryCost(room.getEntryCost())
                 .prizeFund(room.getPrizeFund())
@@ -440,6 +505,28 @@ public class RoomService {
                 .currentPlayers(room.getCurrentPlayers())
                 .botCount(room.getBotCount())
                 .createdAt(room.getCreatedAt())
+                .build();
+    }
+
+    private Room newRoomFromTemplate(UUID templateId) {
+        RoomConfig template = roomConfigRepository.findById(templateId)
+                .orElseThrow(() -> new NotFoundException("Room template not found: " + templateId));
+        if (!Boolean.TRUE.equals(template.getActive())) {
+            throw new IllegalArgumentException("Room template is not active: " + templateId);
+        }
+
+        return Room.builder()
+                .id(UUID.randomUUID())
+                .templateId(template.getId())
+                .maxPlayers(template.getMaxPlayers())
+                .entryCost(template.getEntryCost())
+                .prizeFund(0)
+                .boostAllowed(template.getBonusEnabled())
+                .timerSeconds(ROOM_TIMER_SECONDS)
+                .status(STATUS_WAITING)
+                .currentPlayers(0)
+                .botCount(0)
+                .createdAt(LocalDateTime.now())
                 .build();
     }
 

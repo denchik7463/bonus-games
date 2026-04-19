@@ -69,6 +69,48 @@
 }
 ```
 
+### Войти по шаблону (автоподбор комнаты)
+
+`POST /api/rooms/join-by-template`
+
+Роль: `USER`, `EXPERT`, `ADMIN`
+
+Логика:
+
+1. Ищется активная (`WAITING`) комната этого шаблона, где есть свободные места.
+2. Если такая комната есть — пользователь присоединяется к ней.
+3. Если нет — создается новая комната по шаблону, и пользователь сразу присоединяется.
+
+Пример body:
+
+```json
+{
+  "templateId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+}
+```
+
+Важно: в этом API `boostUsed` не передается. Буст активируется отдельным действием уже после входа в комнату.
+
+### Активировать буст в комнате
+
+`POST /api/rooms/{roomId}/boost/activate`
+
+Роль: `USER`, `EXPERT`, `ADMIN`
+
+Условия:
+
+1. Пользователь уже находится в комнате.
+2. Комната не `FINISHED` и не `CANCELLED`.
+3. Для шаблона комнаты `bonusEnabled=true`.
+4. У пользователя достаточно `available` баланса на `bonusPrice`.
+
+При успешной активации:
+
+- у игрока ставится `boostUsed=true`;
+- с баланса списывается `bonusPrice`;
+- пишется событие `BOOST_ACTIVATED` в `round_event_logs`;
+- в `wallet_transactions` добавляется `BOOST_PURCHASE`.
+
 ### Получить состояние комнаты
 
 `GET /api/rooms/{roomId}/state`
@@ -208,6 +250,26 @@ curl -X POST "http://localhost:8081/api/rooms/$ROOM_ID/join" \
   -d '{
     "boostUsed": false
   }'
+```
+
+### 6) Присоединиться по `templateId` (без передачи `boostUsed`)
+
+```bash
+curl -X POST "http://localhost:8081/api/rooms/join-by-template" \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"templateId\": \"$TEMPLATE_ID\"
+  }"
+```
+
+### 7) Активировать буст после входа в комнату
+
+```bash
+curl -X POST "http://localhost:8081/api/rooms/$ROOM_ID/boost/activate" \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
 
 ## Realtime (WebSocket) и таймер

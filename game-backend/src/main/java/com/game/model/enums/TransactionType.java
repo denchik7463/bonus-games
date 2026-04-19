@@ -5,6 +5,7 @@ public enum TransactionType {
     RESERVE,
     RELEASE,
     BET,
+    BOOST_PURCHASE,
     WIN,
     ADJUSTMENT
 }
