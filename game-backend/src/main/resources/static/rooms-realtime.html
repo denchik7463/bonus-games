@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rooms Realtime Monitor</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --muted: #94a3b8;
+      --text: #e5e7eb;
+      --accent: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --border: #1f2937;
+    }
+    body { margin: 0; font-family: "IBM Plex Sans", "Segoe UI", sans-serif; background: radial-gradient(circle at 20% 10%, #1e293b, var(--bg)); color: var(--text); }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 20px; }
+    .panel { background: rgba(17,24,39,.9); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    h2 { margin: 0 0 10px; font-size: 16px; }
+    .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); }
+    label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+    input, button { width: 100%; box-sizing: border-box; border-radius: 10px; border: 1px solid #334155; background: #0b1220; color: var(--text); padding: 10px; }
+    button { cursor: pointer; background: linear-gradient(90deg,#16a34a,#22c55e); border: none; font-weight: 600; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .actions button:nth-child(2) { background: linear-gradient(90deg,#f59e0b,#f97316); }
+    .actions button:nth-child(3) { background: linear-gradient(90deg,#dc2626,#ef4444); }
+    .muted { color: var(--muted); font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; border-bottom: 1px solid #273449; padding: 8px; font-size: 13px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+    .WAITING { background: #1d4ed8; }
+    .FULL { background: #9333ea; }
+    .FINISHED { background: #16a34a; }
+    .CANCELLED { background: #b91c1c; }
+    pre { background: #0b1220; border: 1px solid #263247; border-radius: 10px; padding: 12px; overflow: auto; max-height: 320px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel">
+    <h1>Room + Wallet Realtime</h1>
+    <div class="grid">
+      <div>
+        <label>Base URL</label>
+        <input id="baseUrl" value="http://localhost:8081" />
+      </div>
+      <div>
+        <label>Bearer token</label>
+        <input id="token" placeholder="eyJ..." />
+      </div>
+      <div>
+        <label>Room ID</label>
+        <input id="roomId" placeholder="UUID" />
+      </div>
+      <div>
+        <label>Refresh (sec)</label>
+        <input id="refreshSec" value="2" />
+      </div>
+    </div>
+    <div class="actions" style="margin-top:10px;">
+      <button onclick="startPolling()">Start monitor</button>
+      <button onclick="finishRoom()">Finish room</button>
+      <button onclick="cancelRoom()">Cancel room</button>
+    </div>
+    <p class="muted">Монитор обновляет состояние комнаты и события каждые N секунд.</p>
+  </div>
+
+  <div class="panel">
+    <h2>Room State</h2>
+    <div id="stateBox" class="muted">Нет данных</div>
+  </div>
+
+  <div class="panel">
+    <h2>Players</h2>
+    <table>
+      <thead>
+      <tr>
+        <th>#</th><th>Username</th><th>Boost</th><th>Status</th><th>Winner</th><th>Reservation</th>
+      </tr>
+      </thead>
+      <tbody id="playersBody"></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2>Room Events</h2>
+    <pre id="eventsBox">[]</pre>
+  </div>
+</div>
+
+<script>
+  let timer = null;
+
+  function headers() {
+    const t = document.getElementById('token').value.trim();
+    return t ? { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+  }
+
+  function endpoint(path) {
+    const base = document.getElementById('baseUrl').value.trim().replace(/\/$/, '');
+    return `${base}${path}`;
+  }
+
+  async function fetchJson(url, opts = {}) {
+    const res = await fetch(url, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+    const text = await res.text();
+    let json;
+    try { json = text ? JSON.parse(text) : null; } catch (_) { json = { raw: text }; }
+    if (!res.ok) throw json || { message: res.statusText };
+    return json;
+  }
+
+  function renderState(state) {
+    const badge = `<span class="badge ${state.status}">${state.status}</span>`;
+    const countdown = formatCountdown(state);
+    document.getElementById('stateBox').innerHTML = `
+      Room: <b>${state.roomId}</b><br/>
+      Status: ${badge}<br/>
+      Players: <b>${state.currentPlayers}/${state.maxPlayers}</b><br/>
+      Entry: <b>${state.entryCost}</b><br/>
+      Prize fund: <b>${state.prizeFund}</b><br/>
+      Timer: <b>${state.timerSeconds}s</b><br/>
+      Remaining: <b>${countdown}</b><br/>
+      Created: ${state.createdAt || '-'}<br/>
+      First joined: ${state.firstPlayerJoinedAt || '-'}<br/>
+      Finished: ${state.finishedAt || '-'}
+    `;
+
+    const tbody = document.getElementById('playersBody');
+    tbody.innerHTML = '';
+    (state.players || []).forEach(p => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${p.playerOrder ?? ''}</td>
+        <td>${p.username}</td>
+        <td>${p.boostUsed ? 'YES' : 'NO'}</td>
+        <td>${p.status ?? ''}</td>
+        <td>${p.winner ? 'YES' : 'NO'}</td>
+        <td><code>${p.walletReservationId ?? ''}</code></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function formatCountdown(state) {
+    if (!state || !state.createdAt || !state.timerSeconds) return '-';
+    if (state.status === 'FINISHED' || state.status === 'CANCELLED') return '00:00';
+
+    const startedMs = parseBackendDateMs(state.createdAt);
+    if (Number.isNaN(startedMs)) return '-';
+
+    const finishMs = startedMs + Number(state.timerSeconds) * 1000;
+    const remainingSec = Math.max(0, Math.ceil((finishMs - Date.now()) / 1000));
+    const mm = String(Math.floor(remainingSec / 60)).padStart(2, '0');
+    const ss = String(remainingSec % 60).padStart(2, '0');
+    return `${mm}:${ss}`;
+  }
+
+  function parseBackendDateMs(value) {
+    if (!value) return NaN;
+    const hasZone = /([zZ]|[+-]\d{2}:\d{2})$/.test(value);
+    return new Date(hasZone ? value : `${value}Z`).getTime();
+  }
+
+  async function refreshOnce() {
+    const roomId = document.getElementById('roomId').value.trim();
+    if (!roomId) return;
+
+    try {
+      const [state, events] = await Promise.all([
+        fetchJson(endpoint(`/api/rooms/${roomId}/state`)),
+        fetchJson(endpoint(`/api/rooms/${roomId}/events`))
+      ]);
+      renderState(state);
+      document.getElementById('eventsBox').textContent = JSON.stringify(events, null, 2);
+    } catch (e) {
+      document.getElementById('stateBox').textContent = `Error: ${e.message || JSON.stringify(e)}`;
+    }
+  }
+
+  function startPolling() {
+    if (timer) clearInterval(timer);
+    refreshOnce();
+    const sec = Number(document.getElementById('refreshSec').value || '2');
+    timer = setInterval(refreshOnce, Math.max(sec, 1) * 1000);
+  }
+
+  async function finishRoom() {
+    const roomId = document.getElementById('roomId').value.trim();
+    if (!roomId) return;
+    try {
+      const result = await fetchJson(endpoint(`/api/rooms/${roomId}/finish`), {
+        method: 'POST',
+        body: JSON.stringify({ baseWeight: 100, boostBonus: 10 })
+      });
+      alert(`Winner: ${result.winnerUsername}, prize: ${result.prizeFund}`);
+      await refreshOnce();
+    } catch (e) {
+      alert(`Finish error: ${e.message || JSON.stringify(e)}`);
+    }
+  }
+
+  async function cancelRoom() {
+    const roomId = document.getElementById('roomId').value.trim();
+    if (!roomId) return;
+    try {
+      await fetchJson(endpoint(`/api/rooms/${roomId}/cancel?reason=Manual+cancel`), { method: 'POST' });
+      await refreshOnce();
+    } catch (e) {
+      alert(`Cancel error: ${e.message || JSON.stringify(e)}`);
+    }
+  }
+</script>
+</body>
+</html>

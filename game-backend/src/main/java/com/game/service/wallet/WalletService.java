@@ -47,6 +47,13 @@ public class WalletService {
         return toBalance(account);
     }
 
+    @Transactional(readOnly = true)
+    public BalanceResponse getBalanceByUserId(UUID userId) {
+        WalletAccount account = walletAccountRepository.findByUserId(userId)
+                .orElseThrow(() -> new NotFoundException("Wallet not found"));
+        return toBalance(account);
+    }
+
     @Transactional
     public BalanceResponse deposit(User user, DepositRequest request, String operationId) {
         WalletAccount account = walletAccountRepository.findByUserIdForUpdate(user.getId())
@@ -120,6 +127,24 @@ public class WalletService {
     }
 
     @Transactional
+    public ReservationResponse reserveForRoomJoin(
+            User user,
+            String roomId,
+            String roundId,
+            long amount,
+            OffsetDateTime expiresAt,
+            String operationId
+    ) {
+        ReserveRequest request = new ReserveRequest();
+        request.setRoomId(roomId);
+        request.setRoundId(roundId);
+        request.setAmount(amount);
+        request.setOperationId(operationId);
+        request.setExpiresAt(expiresAt);
+        return reserve(user, request);
+    }
+
+    @Transactional
     public ReservationResponse release(User user, UUID reservationId, FinalizeReservationRequest request) {
         WalletReservation reservation = getOwnedReservation(user, reservationId);
         WalletAccount account = walletAccountRepository.findByUserIdForUpdate(user.getId())
@@ -148,6 +173,40 @@ public class WalletService {
                 reservation.getAmount(),
                 "Release reservation",
                 request.getOperationId()
+        );
+
+        return toReservationResponse(reservation, account);
+    }
+
+    @Transactional
+    public ReservationResponse releaseSystem(UUID reservationId, String operationId, String description) {
+        WalletReservation reservation = getReservationForUpdate(reservationId);
+        WalletAccount account = walletAccountRepository.findByUserIdForUpdate(reservation.getUserId())
+                .orElseThrow(() -> new NotFoundException("Wallet not found"));
+
+        if (reservation.getStatus() == ReservationStatus.RELEASED) {
+            return toReservationResponse(reservation, account);
+        }
+        if (reservation.getStatus() == ReservationStatus.COMMITTED) {
+            throw new ConflictException("Reservation is already committed");
+        }
+
+        account.setReservedBalance(account.getReservedBalance() - reservation.getAmount());
+        account.setAvailableBalance(account.getAvailableBalance() + reservation.getAmount());
+        account.setUpdatedAt(OffsetDateTime.now());
+        walletAccountRepository.save(account);
+
+        reservation.setStatus(ReservationStatus.RELEASED);
+        reservation.setUpdatedAt(OffsetDateTime.now());
+        walletReservationRepository.save(reservation);
+
+        createTransaction(
+                reservation.getUserId(),
+                reservation.getId(),
+                TransactionType.RELEASE,
+                reservation.getAmount(),
+                description == null ? "Release reservation" : description,
+                operationId
         );
 
         return toReservationResponse(reservation, account);
@@ -186,8 +245,71 @@ public class WalletService {
         return toReservationResponse(reservation, account);
     }
 
+    @Transactional
+    public ReservationResponse commitSystem(UUID reservationId, String operationId, String description) {
+        WalletReservation reservation = getReservationForUpdate(reservationId);
+        WalletAccount account = walletAccountRepository.findByUserIdForUpdate(reservation.getUserId())
+                .orElseThrow(() -> new NotFoundException("Wallet not found"));
+
+        if (reservation.getStatus() == ReservationStatus.COMMITTED) {
+            return toReservationResponse(reservation, account);
+        }
+        if (reservation.getStatus() == ReservationStatus.RELEASED) {
+            throw new ConflictException("Reservation is already released");
+        }
+
+        account.setReservedBalance(account.getReservedBalance() - reservation.getAmount());
+        account.setUpdatedAt(OffsetDateTime.now());
+        walletAccountRepository.save(account);
+
+        reservation.setStatus(ReservationStatus.COMMITTED);
+        reservation.setUpdatedAt(OffsetDateTime.now());
+        walletReservationRepository.save(reservation);
+
+        createTransaction(
+                reservation.getUserId(),
+                reservation.getId(),
+                TransactionType.BET,
+                reservation.getAmount(),
+                description == null ? "Commit reservation" : description,
+                operationId
+        );
+
+        return toReservationResponse(reservation, account);
+    }
+
+    @Transactional
+    public BalanceResponse creditWin(UUID userId, long amount, String operationId, String description) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Win amount must be > 0");
+        }
+
+        WalletAccount account = walletAccountRepository.findByUserIdForUpdate(userId)
+                .orElseThrow(() -> new NotFoundException("Wallet not found"));
+
+        account.setAvailableBalance(account.getAvailableBalance() + amount);
+        account.setUpdatedAt(OffsetDateTime.now());
+        walletAccountRepository.save(account);
+
+        createTransaction(
+                userId,
+                null,
+                TransactionType.WIN,
+                amount,
+                description == null ? "Win payout" : description,
+                operationId
+        );
+
+        return toBalance(account);
+    }
+
     private WalletReservation getOwnedReservation(User user, UUID reservationId) {
         return walletReservationRepository.findByIdAndUserIdForUpdate(reservationId, user.getId())
+                .orElseThrow(() -> new NotFoundException("Reservation not found"));
+    }
+
+    private WalletReservation getReservationForUpdate(UUID reservationId) {
+        return walletReservationRepository.findByIdForUpdate(reservationId)
                 .orElseThrow(() -> new NotFoundException("Reservation not found"));
     }
 
