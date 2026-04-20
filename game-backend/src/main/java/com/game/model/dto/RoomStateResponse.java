@@ -17,6 +17,7 @@ public class RoomStateResponse {
     Integer entryCost;
     Integer prizeFund;
     Integer timerSeconds;
+    Long remainingSeconds;
     LocalDateTime createdAt;
     LocalDateTime firstPlayerJoinedAt;
     LocalDateTime startedAt;

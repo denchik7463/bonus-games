@@ -37,7 +37,8 @@
 
 ## API по комнатам
 
-Базовый префикс: `/api/rooms`
+Основной префикс: `/api/rooms`  
+Отдельный endpoint поиска/подбора комнаты: `/api/room/find`
 
 ### Создать комнату
 
@@ -69,27 +70,38 @@
 }
 ```
 
+Важно: вход в комнату запрещен, если до ее таймаута осталось `<= 5` секунд.
+
 ### Войти по шаблону (автоподбор комнаты)
 
-`POST /api/rooms/join-by-template`
+`POST /api/room/find`
 
 Роль: `USER`, `EXPERT`, `ADMIN`
 
 Логика:
 
-1. Ищется активная (`WAITING`) комната этого шаблона, где есть свободные места.
-2. Если такая комната есть — пользователь присоединяется к ней.
-3. Если нет — создается новая комната по шаблону, и пользователь сразу присоединяется.
+1. Ищется активная (`WAITING`) комната с такими параметрами, где есть свободные места.
+2. У найденной комнаты должно оставаться больше 5 секунд до таймаута.
+3. Если подходящая комната есть — возвращается она.
+4. Если подходящей комнаты нет — создается новая и возвращается она.
+5. Пользователь в комнату автоматически **не присоединяется**.
 
 Пример body:
 
 ```json
 {
-  "templateId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  "maxPlayers": 2,
+  "entryCost": 100,
+  "boostAllowed": true
 }
 ```
 
-Важно: в этом API `boostUsed` не передается. Буст активируется отдельным действием уже после входа в комнату.
+Важно:
+
+- этот API только возвращает `roomId` (подбор/создание комнаты), но не выполняет `join`;
+- после этого игрок должен отдельно вызвать `POST /api/rooms/{roomId}/join`;
+- `boostUsed` в этом API не передается.
+- `templateId` можно передавать как опциональный параметр для жесткой привязки к конкретному шаблону.
 
 ### Активировать буст в комнате
 
@@ -247,20 +259,40 @@ echo "$ROOM_ID"
 curl -X POST "http://localhost:8081/api/rooms/$ROOM_ID/join" \
   -H "Authorization: Bearer $USER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "boostUsed": false
-  }'
+  -d '{}'
 ```
 
-### 6) Присоединиться по `templateId` (без передачи `boostUsed`)
+### 6) Найти/создать комнату по параметрам (без присоединения)
 
 ```bash
-curl -X POST "http://localhost:8081/api/rooms/join-by-template" \
+curl -X POST "http://localhost:8081/api/room/find" \
   -H "Authorization: Bearer $USER_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{
-    \"templateId\": \"$TEMPLATE_ID\"
+    \"maxPlayers\": 2,
+    \"entryCost\": 100,
+    \"boostAllowed\": true
   }"
+```
+
+Опционально можно добавить `templateId`:
+
+```json
+{
+  "templateId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "maxPlayers": 2,
+  "entryCost": 100,
+  "boostAllowed": true
+}
+```
+
+### 6.1) После этого присоединиться к комнате по ID
+
+```bash
+curl -X POST "http://localhost:8081/api/rooms/$ROOM_ID/join" \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
 
 ### 7) Активировать буст после входа в комнату
@@ -276,24 +308,148 @@ curl -X POST "http://localhost:8081/api/rooms/$ROOM_ID/boost/activate" \
 
 ### Что сейчас реализовано
 
-В текущей версии realtime для комнат работает через HTTP polling, а не через WebSocket push.
+Реaltime для комнаты работает через WebSocket:
 
-Используй периодические запросы:
+- endpoint: `/ws/rooms`
+- query params: `roomId`, `token`
+- формат сообщений: `WsEvent`
+  - `ROOM_STATE` — актуальный `RoomStateResponse`
+  - `ROOM_EVENTS` — список `RoundEventResponse`
 
-- `GET /api/rooms/{roomId}/state` — текущее состояние комнаты
-- `GET /api/rooms/{roomId}/events` — журнал событий комнаты
+Пример подключения из браузера:
 
-Пример polling каждые 2 секунды:
-
-```bash
-watch -n 2 "curl -s -H 'Authorization: Bearer $USER_TOKEN' http://localhost:8081/api/rooms/$ROOM_ID/state | jq"
+```text
+ws://localhost:8081/ws/rooms?roomId=<ROOM_ID>&token=<TOKEN>
 ```
 
-### WebSocket
+`rooms-realtime.html` использует только WebSocket для realtime-обновлений.
 
-В проекте есть заготовки (`WebSocketConfig`, `WebSocketHandler`, `RoomEventPublisher`), но полноценный WebSocket-канал событий комнат пока не подключен.
+### Как работать с WebSocket (практика)
 
-До подключения WS используй `test-lobby.html` или `rooms-realtime.html`, где уже встроен polling.
+1. Подключись к комнате:
+
+```text
+ws://localhost:8081/ws/rooms?roomId=<ROOM_ID>&token=<TOKEN>
+```
+
+2. После подключения сервер отправит initial snapshot:
+
+- `ROOM_STATE`
+- `ROOM_EVENTS`
+
+3. Дальше слушай входящие сообщения:
+
+- при изменении комнаты приходит новый `ROOM_STATE`
+- список участников всегда в `ROOM_STATE.payload.players`
+
+Пример JS-клиента:
+
+```javascript
+const roomId = "67169950-88a5-4d7d-83e2-569ff1514971";
+const token = "YOUR_TOKEN";
+
+const ws = new WebSocket(
+  `ws://localhost:8081/ws/rooms?roomId=${encodeURIComponent(roomId)}&token=${encodeURIComponent(token)}`
+);
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+
+  if (msg.type === "ROOM_STATE") {
+    console.log("Room state:", msg.payload);
+    console.log("Players:", msg.payload.players);
+  }
+
+  if (msg.type === "ROOM_EVENTS") {
+    console.log("Room events:", msg.payload);
+  }
+};
+```
+
+### Что приходит от WebSocket
+
+Сообщения приходят в формате `WsEvent`:
+
+```json
+{
+  "type": "ROOM_STATE",
+  "roomId": "67169950-88a5-4d7d-83e2-569ff1514971",
+  "payload": {},
+  "sentAt": "2026-04-20T09:30:00Z"
+}
+```
+
+Поля:
+
+- `type` — тип события (`ROOM_STATE` или `ROOM_EVENTS`)
+- `roomId` — ID комнаты
+- `payload` — данные события
+- `sentAt` — время отправки события сервером
+
+#### `ROOM_STATE`
+
+`payload` содержит текущее состояние комнаты:
+
+- `roomId`, `status`, `currentPlayers`, `maxPlayers`
+- `entryCost`, `prizeFund`, `timerSeconds`
+- `createdAt`, `firstPlayerJoinedAt`, `startedAt`, `finishedAt`
+- `players` — список участников в комнате
+
+Пример:
+
+```json
+{
+  "type": "ROOM_STATE",
+  "roomId": "67169950-88a5-4d7d-83e2-569ff1514971",
+  "payload": {
+    "roomId": "67169950-88a5-4d7d-83e2-569ff1514971",
+    "status": "WAITING",
+    "currentPlayers": 1,
+    "maxPlayers": 2,
+    "entryCost": 100,
+    "prizeFund": 100,
+    "timerSeconds": 60,
+    "createdAt": "2026-04-20T09:29:10.001",
+    "players": [
+      {
+        "userId": "69e62862-7fd9-40f0-b135-5f6221e194a4",
+        "username": "denis",
+        "walletReservationId": "2d90f7f8-ddea-467b-b5ce-9d24c49b88bc",
+        "boostUsed": false,
+        "playerOrder": 1,
+        "winner": false,
+        "status": "JOINED",
+        "joinTime": "2026-04-20T09:29:15.501"
+      }
+    ]
+  },
+  "sentAt": "2026-04-20T09:29:15.520Z"
+}
+```
+
+#### `ROOM_EVENTS`
+
+`payload` содержит массив событий комнаты (аналог `GET /api/rooms/{roomId}/events`).
+
+Пример:
+
+```json
+{
+  "type": "ROOM_EVENTS",
+  "roomId": "67169950-88a5-4d7d-83e2-569ff1514971",
+  "payload": [
+    {
+      "eventType": "ROOM_CREATED",
+      "eventTitle": "Комната создана"
+    },
+    {
+      "eventType": "PLAYER_JOINED",
+      "eventTitle": "Игрок вошёл в комнату"
+    }
+  ],
+  "sentAt": "2026-04-20T09:29:15.521Z"
+}
+```
 
 ### Как работает таймер комнаты
 
@@ -315,5 +471,6 @@ curl -s -H "Authorization: Bearer $USER_TOKEN" \
 
 - `createdAt`
 - `timerSeconds`
+- `remainingSeconds`
 - `status`
 - `finishedAt`

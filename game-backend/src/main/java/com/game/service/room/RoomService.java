@@ -25,6 +25,7 @@ import com.game.repository.GameResultRepository;
 import com.game.repository.RoomConfigRepository;
 import com.game.repository.RoomPlayerRepository;
 import com.game.repository.RoomRepository;
+import com.game.realtime.RoomEventPublisher;
 import com.game.service.game.RoundEventLogService;
 import com.game.service.game.WinnerService;
 import com.game.service.wallet.WalletService;
@@ -46,6 +47,7 @@ import java.util.UUID;
 public class RoomService {
 
     private static final int ROOM_TIMER_SECONDS = 60;
+    private static final long MIN_TIME_LEFT_TO_JOIN_MS = 5_000L;
     private static final String STATUS_WAITING = "WAITING";
     private static final String STATUS_FULL = "FULL";
     private static final String STATUS_FINISHED = "FINISHED";
@@ -55,6 +57,7 @@ public class RoomService {
     private final RoomPlayerRepository roomPlayerRepository;
     private final RoomConfigRepository roomConfigRepository;
     private final GameResultRepository gameResultRepository;
+    private final RoomEventPublisher roomEventPublisher;
     private final WalletService walletService;
     private final WinnerService winnerService;
     private final RoundEventLogService roundEventLogService;
@@ -74,18 +77,36 @@ public class RoomService {
                         + ",\"timerSeconds\":" + saved.getTimerSeconds() + "}"
         );
 
+        publishRoomRealtime(saved.getId());
+
         return toResponse(saved);
     }
 
     @Transactional
-    public JoinRoomResponse joinByTemplate(JoinByTemplateRequest request, User user) {
-        UUID templateId = request.getTemplateId();
-        Room room = roomRepository.findJoinableWaitingRoomsByTemplateIdForUpdate(templateId, PageRequest.of(0, 1))
+    public RoomResponse joinByTemplate(JoinByTemplateRequest request) {
+        RoomConfig template = resolveTemplateForMatching(request);
+        UUID templateId = template.getId();
+        Room room = roomRepository.findJoinableWaitingRoomsByTemplateIdForUpdate(templateId, PageRequest.of(0, 50))
                 .stream()
+                .filter(this::hasMoreThanFiveSecondsLeft)
                 .findFirst()
-                .orElseGet(() -> roomRepository.save(newRoomFromTemplate(templateId)));
-
-        return joinRoom(room.getId(), user, null);
+                .orElseGet(() -> {
+                    Room created = roomRepository.save(newRoomFromTemplate(templateId));
+                    roundEventLogService.logSystemEvent(
+                            created.getId(),
+                            null,
+                            "ROOM_CREATED",
+                            "Комната создана",
+                            "Создана новая игровая комната.",
+                            "{\"maxPlayers\":" + created.getMaxPlayers()
+                                    + ",\"entryCost\":" + created.getEntryCost()
+                                    + ",\"boostAllowed\":" + created.getBoostAllowed()
+                                    + ",\"timerSeconds\":" + created.getTimerSeconds() + "}"
+                    );
+                    publishRoomRealtime(created.getId());
+                    return created;
+                });
+        return toResponse(room);
     }
 
     @Transactional
@@ -146,6 +167,8 @@ public class RoomService {
                         + ",\"boostWeight\":" + template.getBonusWeight() + "}"
         );
 
+        publishRoomRealtime(room.getId());
+
         return BoostActivationResponse.builder()
                 .roomId(room.getId())
                 .userId(user.getId())
@@ -188,6 +211,7 @@ public class RoomService {
                 .entryCost(room.getEntryCost())
                 .prizeFund(room.getPrizeFund())
                 .timerSeconds(room.getTimerSeconds())
+                .remainingSeconds(remainingSeconds(room))
                 .createdAt(room.getCreatedAt())
                 .firstPlayerJoinedAt(room.getFirstPlayerJoinedAt())
                 .startedAt(room.getStartedAt())
@@ -202,6 +226,9 @@ public class RoomService {
 
         if (STATUS_FINISHED.equals(room.getStatus()) || STATUS_CANCELLED.equals(room.getStatus())) {
             throw new IllegalArgumentException("Room is already closed");
+        }
+        if (!hasMoreThanFiveSecondsLeft(room)) {
+            throw new IllegalArgumentException("Cannot join room: less than 5 seconds left before timeout");
         }
         if (room.getCurrentPlayers() >= room.getMaxPlayers()) {
             throw new IllegalStateException("Room is full");
@@ -265,6 +292,8 @@ public class RoomService {
                         + "\",\"currentPlayers\":" + room.getCurrentPlayers()
                         + ",\"prizeFund\":" + room.getPrizeFund() + "}"
         );
+
+        publishRoomRealtime(room.getId());
 
         return JoinRoomResponse.builder()
                 .roomId(room.getId())
@@ -391,6 +420,8 @@ public class RoomService {
                         + ",\"randomHash\":\"" + escapeJson(winner.getRandomHash()) + "\"}"
         );
 
+        publishRoomRealtime(room.getId());
+
         return FinishRoomResponse.builder()
                 .roomId(room.getId())
                 .roomStatus(room.getStatus())
@@ -437,6 +468,8 @@ public class RoomService {
                 reason == null ? "Комната отменена" : reason,
                 null
         );
+
+        publishRoomRealtime(room.getId());
     }
 
     @Transactional
@@ -505,6 +538,7 @@ public class RoomService {
                 .currentPlayers(room.getCurrentPlayers())
                 .botCount(room.getBotCount())
                 .createdAt(room.getCreatedAt())
+                .remainingSeconds(remainingSeconds(room))
                 .build();
     }
 
@@ -591,5 +625,56 @@ public class RoomService {
             return "";
         }
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private RoomConfig resolveTemplateForMatching(JoinByTemplateRequest request) {
+        if (request.getTemplateId() != null) {
+            RoomConfig template = roomConfigRepository.findById(request.getTemplateId())
+                    .orElseThrow(() -> new NotFoundException("Room template not found: " + request.getTemplateId()));
+            if (!Boolean.TRUE.equals(template.getActive())) {
+                throw new IllegalArgumentException("Room template is not active: " + request.getTemplateId());
+            }
+            if (!template.getMaxPlayers().equals(request.getMaxPlayers())
+                    || !template.getEntryCost().equals(request.getEntryCost())
+                    || !template.getBonusEnabled().equals(request.getBoostAllowed())) {
+                throw new IllegalArgumentException("Template parameters do not match requested room parameters");
+            }
+            return template;
+        }
+
+        return roomConfigRepository
+                .findFirstByActiveTrueAndMaxPlayersAndEntryCostAndBonusEnabledOrderByCreatedAtDesc(
+                        request.getMaxPlayers(),
+                        request.getEntryCost(),
+                        request.getBoostAllowed()
+                )
+                .orElseThrow(() -> new NotFoundException("Active room template for requested parameters not found"));
+    }
+
+    private boolean hasMoreThanFiveSecondsLeft(Room room) {
+        return remainingMillis(room) > MIN_TIME_LEFT_TO_JOIN_MS;
+    }
+
+    private long remainingSeconds(Room room) {
+        long millis = remainingMillis(room);
+        if (millis <= 0) {
+            return 0L;
+        }
+        return (long) Math.ceil(millis / 1000.0d);
+    }
+
+    private long remainingMillis(Room room) {
+        if (room.getCreatedAt() == null || room.getTimerSeconds() == null) {
+            return 0L;
+        }
+        LocalDateTime timeoutAt = room.getCreatedAt().plusSeconds(room.getTimerSeconds());
+        long millisLeft = java.time.Duration.between(LocalDateTime.now(), timeoutAt).toMillis();
+        return Math.max(0L, millisLeft);
+    }
+
+    private void publishRoomRealtime(UUID roomId) {
+        RoomStateResponse roomState = getRoomState(roomId);
+        roomEventPublisher.publishRoomState(roomState);
+        roomEventPublisher.publishRoomEvents(roomId, roundEventLogService.getByRoomId(roomId));
     }
 }

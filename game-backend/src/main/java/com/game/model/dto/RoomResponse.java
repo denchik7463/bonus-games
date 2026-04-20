@@ -21,4 +21,5 @@ public class RoomResponse {
     private Integer currentPlayers;
     private Integer botCount;
     private LocalDateTime createdAt;
+    private Long remainingSeconds;
 }

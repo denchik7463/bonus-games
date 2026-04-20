@@ -4,7 +4,6 @@ import com.game.model.dto.CreateRoomRequest;
 import com.game.model.dto.FinishRoomRequest;
 import com.game.model.dto.FinishRoomResponse;
 import com.game.model.dto.BoostActivationResponse;
-import com.game.model.dto.JoinByTemplateRequest;
 import com.game.model.dto.JoinRoomRequest;
 import com.game.model.dto.JoinRoomResponse;
 import com.game.model.dto.RoomResponse;
@@ -69,13 +68,6 @@ public class RoomController {
         RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
         User user = UserContext.getRequired();
         return roomService.joinRoom(roomId, user, request);
-    }
-
-    @PostMapping("/join-by-template")
-    public JoinRoomResponse joinByTemplate(@Valid @RequestBody JoinByTemplateRequest request) {
-        RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
-        User user = UserContext.getRequired();
-        return roomService.joinByTemplate(request, user);
     }
 
     @PostMapping("/{roomId}/boost/activate")

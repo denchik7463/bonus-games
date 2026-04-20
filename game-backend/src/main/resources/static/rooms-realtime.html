@@ -56,16 +56,16 @@
         <input id="roomId" placeholder="UUID" />
       </div>
       <div>
-        <label>Refresh (sec)</label>
+        <label>Reconnect (sec)</label>
         <input id="refreshSec" value="2" />
       </div>
     </div>
     <div class="actions" style="margin-top:10px;">
-      <button onclick="startPolling()">Start monitor</button>
+      <button onclick="startMonitor()">Start monitor</button>
       <button onclick="finishRoom()">Finish room</button>
       <button onclick="cancelRoom()">Cancel room</button>
     </div>
-    <p class="muted">Монитор обновляет состояние комнаты и события каждые N секунд.</p>
+    <p id="wsStatus" class="muted">WS: disconnected</p>
   </div>
 
   <div class="panel">
@@ -92,7 +92,10 @@
 </div>
 
 <script>
-  let timer = null;
+  let ws = null;
+  let reconnectTimer = null;
+  let countdownTimer = null;
+  let lastRoomState = null;
 
   function headers() {
     const t = document.getElementById('token').value.trim();
@@ -114,6 +117,7 @@
   }
 
   function renderState(state) {
+    lastRoomState = state;
     const badge = `<span class="badge ${state.status}">${state.status}</span>`;
     const countdown = formatCountdown(state);
     document.getElementById('stateBox').innerHTML = `
@@ -165,27 +169,73 @@
     return new Date(hasZone ? value : `${value}Z`).getTime();
   }
 
-  async function refreshOnce() {
-    const roomId = document.getElementById('roomId').value.trim();
-    if (!roomId) return;
-
-    try {
-      const [state, events] = await Promise.all([
-        fetchJson(endpoint(`/api/rooms/${roomId}/state`)),
-        fetchJson(endpoint(`/api/rooms/${roomId}/events`))
-      ]);
-      renderState(state);
-      document.getElementById('eventsBox').textContent = JSON.stringify(events, null, 2);
-    } catch (e) {
-      document.getElementById('stateBox').textContent = `Error: ${e.message || JSON.stringify(e)}`;
+  function startMonitor() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
     }
+    connectWebSocket();
+    startCountdownTicker();
   }
 
-  function startPolling() {
-    if (timer) clearInterval(timer);
-    refreshOnce();
+  function startCountdownTicker() {
+    if (countdownTimer) clearInterval(countdownTimer);
+    countdownTimer = setInterval(() => {
+      if (lastRoomState) renderState(lastRoomState);
+    }, 1000);
+  }
+
+  function connectWebSocket() {
+    const roomId = document.getElementById('roomId').value.trim();
+    const token = document.getElementById('token').value.trim();
+    if (!roomId || !token) {
+      setWsStatus('WS: roomId/token required', false);
+      return;
+    }
+
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      ws.close();
+    }
+
+    const base = document.getElementById('baseUrl').value.trim();
+    const wsBase = base.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:').replace(/\/$/, '');
+    const wsUrl = `${wsBase}/ws/rooms?roomId=${encodeURIComponent(roomId)}&token=${encodeURIComponent(token)}`;
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => setWsStatus('WS: connected', true);
+    ws.onclose = () => {
+      setWsStatus('WS: disconnected, reconnecting...', false);
+      scheduleReconnect();
+    };
+    ws.onerror = () => setWsStatus('WS: error', false);
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === 'ROOM_STATE') {
+          renderState(message.payload);
+          return;
+        }
+        if (message.type === 'ROOM_EVENTS') {
+          document.getElementById('eventsBox').textContent = JSON.stringify(message.payload || [], null, 2);
+        }
+      } catch (e) {
+        setWsStatus(`WS: parse error ${e.message || e}`, false);
+      }
+    };
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
     const sec = Number(document.getElementById('refreshSec').value || '2');
-    timer = setInterval(refreshOnce, Math.max(sec, 1) * 1000);
+    reconnectTimer = setTimeout(() => {
+      connectWebSocket();
+    }, Math.max(sec, 1) * 1000);
+  }
+
+  function setWsStatus(text, ok) {
+    const el = document.getElementById('wsStatus');
+    el.textContent = text;
+    el.style.color = ok ? '#4ade80' : '#f87171';
   }
 
   async function finishRoom() {
@@ -197,7 +247,6 @@
         body: JSON.stringify({ baseWeight: 100, boostBonus: 10 })
       });
       alert(`Winner: ${result.winnerUsername}, prize: ${result.prizeFund}`);
-      await refreshOnce();
     } catch (e) {
       alert(`Finish error: ${e.message || JSON.stringify(e)}`);
     }
@@ -208,7 +257,6 @@
     if (!roomId) return;
     try {
       await fetchJson(endpoint(`/api/rooms/${roomId}/cancel?reason=Manual+cancel`), { method: 'POST' });
-      await refreshOnce();
     } catch (e) {
       alert(`Cancel error: ${e.message || JSON.stringify(e)}`);
     }

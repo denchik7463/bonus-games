@@ -315,13 +315,22 @@
     try {
       const templateId = document.getElementById('templateId').value.trim();
       if (!templateId) throw new Error('Template ID is empty');
-      const data = await api('/api/rooms/join-by-template', {
+      const templatesRaw = document.getElementById('templatesView').textContent.trim();
+      let templates = [];
+      try { templates = JSON.parse(templatesRaw); } catch (_) {}
+      const selected = Array.isArray(templates) ? templates.find(t => t.id === templateId) : null;
+      if (!selected) throw new Error('Template not found in loaded templates. Click Load templates first.');
+      const data = await api('/api/room/find', {
         method: 'POST',
-        body: JSON.stringify({ templateId })
+        body: JSON.stringify({
+          templateId,
+          maxPlayers: selected.maxPlayers,
+          entryCost: selected.entryCost,
+          boostAllowed: selected.bonusEnabled
+        })
       });
-      document.getElementById('roomId').value = data.roomId;
-      setRoomStatus(`Joined by template. roomId=${data.roomId}, reservationId=${data.reservationId}`);
-      await refreshOnce();
+      document.getElementById('roomId').value = data.id;
+      setRoomStatus(`Room resolved by params. roomId=${data.id}. Now join by room ID.`);
     } catch (e) {
       setRoomStatus(`Join-by-template error: ${e.message || JSON.stringify(e)}`, false);
     }
