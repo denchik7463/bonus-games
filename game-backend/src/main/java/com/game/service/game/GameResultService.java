@@ -5,6 +5,7 @@ import com.game.exception.NotFoundException;
 import com.game.model.dto.CreateGameResultRequest;
 import com.game.model.dto.GameResultResponse;
 import com.game.model.dto.RoundEventResponse;
+import com.game.model.dto.UserWinStreakResponse;
 import com.game.model.entity.GameResult;
 import com.game.model.entity.GameResultPlayer;
 import com.game.model.entity.User;
@@ -146,6 +147,45 @@ public class GameResultService {
     }
 
     @Transactional(readOnly = true)
+    public UserWinStreakResponse getMyWinStreak(User user) {
+        List<GameResult> history = gameResultRepository.findUserHistory(
+                user.getId().toString(),
+                user.getUsername()
+        );
+
+        int streak = 0;
+        UUID latestGameResultId = null;
+        OffsetDateTime latestGameAt = null;
+
+        if (!history.isEmpty()) {
+            latestGameResultId = history.get(0).getId();
+            latestGameAt = history.get(0).getCreatedAt();
+        }
+
+        for (GameResult gameResult : history) {
+            boolean isWinner = gameResult.getParticipants().stream()
+                    .anyMatch(player ->
+                            isCurrentUser(player, user) && Boolean.TRUE.equals(player.getWinner())
+                    );
+
+            if (isWinner) {
+                streak++;
+            } else {
+                break;
+            }
+        }
+
+        return UserWinStreakResponse.builder()
+                .userId(user.getId())
+                .username(user.getUsername())
+                .currentWinStreak(streak)
+                .latestGameResultId(latestGameResultId)
+                .latestGameAt(latestGameAt)
+                .calculatedAt(OffsetDateTime.now())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
     public void ensureUserParticipated(UUID gameResultId, User user) {
         boolean participated = gameResultRepository.existsUserParticipation(
                 gameResultId,
@@ -192,6 +232,12 @@ public class GameResultService {
                 throw new IllegalArgumentException("У каждого участника finalWeight должен быть больше 0.");
             }
         }
+    }
+
+    private boolean isCurrentUser(GameResultPlayer player, User user) {
+        return user.getId().toString().equals(player.getPlayerExternalId())
+                || (player.getUsername() != null
+                && player.getUsername().equalsIgnoreCase(user.getUsername()));
     }
 
     private GameResultResponse toResponseWithEvents(GameResult gameResult) {

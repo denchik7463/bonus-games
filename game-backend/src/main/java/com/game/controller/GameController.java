@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import com.game.model.dto.UserWinStreakResponse;
 
 import java.util.List;
 import java.util.UUID;
@@ -70,6 +71,12 @@ public class GameController {
     public GameResultResponse getMyJournalEntry(@PathVariable UUID id) {
         User user = RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
         return gameResultService.getMyHistoryEntry(id, user);
+    }
+
+    @GetMapping("/journal/me/win-streak")
+    public UserWinStreakResponse getMyWinStreak() {
+        User user = RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
+        return gameResultService.getMyWinStreak(user);
     }
 
     @GetMapping("/journal/me/{id}/events")
