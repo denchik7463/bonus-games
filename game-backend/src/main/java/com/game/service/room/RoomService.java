@@ -655,7 +655,10 @@ public class RoomService {
         return remainingMillis(room) > MIN_TIME_LEFT_TO_JOIN_MS;
     }
 
-    private long remainingSeconds(Room room) {
+    private Long remainingSeconds(Room room) {
+        if (room.getFirstPlayerJoinedAt() == null) {
+            return null;
+        }
         long millis = remainingMillis(room);
         if (millis <= 0) {
             return 0L;
@@ -664,10 +667,13 @@ public class RoomService {
     }
 
     private long remainingMillis(Room room) {
-        if (room.getCreatedAt() == null || room.getTimerSeconds() == null) {
+        if (room.getTimerSeconds() == null) {
             return 0L;
         }
-        LocalDateTime timeoutAt = room.getCreatedAt().plusSeconds(room.getTimerSeconds());
+        if (room.getFirstPlayerJoinedAt() == null) {
+            return Long.MAX_VALUE;
+        }
+        LocalDateTime timeoutAt = room.getFirstPlayerJoinedAt().plusSeconds(room.getTimerSeconds());
         long millisLeft = java.time.Duration.between(LocalDateTime.now(), timeoutAt).toMillis();
         return Math.max(0L, millisLeft);
     }

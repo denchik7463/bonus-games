@@ -150,10 +150,11 @@
   }
 
   function formatCountdown(state) {
-    if (!state || !state.createdAt || !state.timerSeconds) return '-';
+    if (!state || !state.timerSeconds) return '-';
+    if (!state.firstPlayerJoinedAt) return 'not started';
     if (state.status === 'FINISHED' || state.status === 'CANCELLED') return '00:00';
 
-    const startedMs = parseBackendDateMs(state.createdAt);
+    const startedMs = parseBackendDateMs(state.firstPlayerJoinedAt);
     if (Number.isNaN(startedMs)) return '-';
 
     const finishMs = startedMs + Number(state.timerSeconds) * 1000;
