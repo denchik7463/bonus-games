@@ -15,7 +15,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
@@ -92,11 +92,11 @@ public class DashboardService {
     private List<DashboardMetricPointResponse> getActivePlayersTimeline(LocalDateTime start,
                                                                        LocalDateTime end,
                                                                        int bucketMinutes) {
-        List<RoomPlayer> players = roomPlayerRepository.findActivePlayersJoinedBetween(start, end, ACTIVE_ROOM_STATUSES);
-        Map<LocalDateTime, Long> buckets = new LinkedHashMap<>();
+        List<RoomPlayer> players = roomPlayerRepository.findByJoinTimeBetweenOrderByJoinTimeAsc(start, end);
+        Map<LocalDateTime, Long> buckets = createEmptyBuckets(start, end, bucketMinutes);
 
         for (RoomPlayer player : players) {
-            LocalDateTime bucket = toBucket(player.getJoinTime(), bucketMinutes);
+            LocalDateTime bucket = toBucket(player.getJoinTime(), start, bucketMinutes);
             buckets.put(bucket, buckets.getOrDefault(bucket, 0L) + 1);
         }
 
@@ -107,10 +107,10 @@ public class DashboardService {
                                                                     LocalDateTime end,
                                                                     int bucketMinutes) {
         List<Room> rooms = roomRepository.findByCreatedAtBetween(start, end);
-        Map<LocalDateTime, Long> buckets = new LinkedHashMap<>();
+        Map<LocalDateTime, Long> buckets = createEmptyBuckets(start, end, bucketMinutes);
 
         for (Room room : rooms) {
-            LocalDateTime bucket = toBucket(room.getCreatedAt(), bucketMinutes);
+            LocalDateTime bucket = toBucket(room.getCreatedAt(), start, bucketMinutes);
             buckets.put(bucket, buckets.getOrDefault(bucket, 0L) + 1);
         }
 
@@ -125,11 +125,24 @@ public class DashboardService {
                 .toList();
     }
 
-    private LocalDateTime toBucket(LocalDateTime value, int bucketMinutes) {
-        LocalDate date = value.toLocalDate();
-        int minutesOfDay = value.getHour() * 60 + value.getMinute();
-        int bucketStart = (minutesOfDay / bucketMinutes) * bucketMinutes;
-        return date.atStartOfDay().plusMinutes(bucketStart);
+    private Map<LocalDateTime, Long> createEmptyBuckets(LocalDateTime start,
+                                                       LocalDateTime end,
+                                                       int bucketMinutes) {
+        Map<LocalDateTime, Long> buckets = new LinkedHashMap<>();
+        LocalDateTime cursor = start;
+
+        while (!cursor.isAfter(end)) {
+            buckets.put(cursor, 0L);
+            cursor = cursor.plusMinutes(bucketMinutes);
+        }
+
+        return buckets;
+    }
+
+    private LocalDateTime toBucket(LocalDateTime value, LocalDateTime rangeStart, int bucketMinutes) {
+        long minutesFromStart = Duration.between(rangeStart, value).toMinutes();
+        long bucketOffset = (minutesFromStart / bucketMinutes) * bucketMinutes;
+        return rangeStart.plusMinutes(bucketOffset);
     }
 
     private DateRange normalizeRange(LocalDateTime start, LocalDateTime end) {

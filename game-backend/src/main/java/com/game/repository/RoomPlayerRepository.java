@@ -22,14 +22,5 @@ public interface RoomPlayerRepository extends JpaRepository<RoomPlayer, Long> {
 
     List<RoomPlayer> findByRoom_IdOrderByPlayerOrderAsc(UUID roomId);
 
-    @Query("""
-            select rp
-            from RoomPlayer rp
-            where rp.joinTime between :start and :end
-              and rp.room.status in :roomStatuses
-              and rp.status = 'JOINED'
-            """)
-    List<RoomPlayer> findActivePlayersJoinedBetween(LocalDateTime start,
-                                                    LocalDateTime end,
-                                                    List<String> roomStatuses);
+    List<RoomPlayer> findByJoinTimeBetweenOrderByJoinTimeAsc(LocalDateTime start, LocalDateTime end);
 }
