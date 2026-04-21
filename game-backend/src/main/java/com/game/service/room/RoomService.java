@@ -57,18 +57,6 @@ public class RoomService {
     private static final String STATUS_FINISHED = "FINISHED";
     private static final String STATUS_CANCELLED = "CANCELLED";
     private static final List<String> ACTIVE_STATUSES = List.of(STATUS_WAITING, STATUS_FULL);
-    private static final List<String> BOT_NAMES = List.of(
-            "Bot Alpha",
-            "Bot Bravo",
-            "Bot Charlie",
-            "Bot Delta",
-            "Bot Echo",
-            "Bot Foxtrot",
-            "Bot Golf",
-            "Bot Hotel",
-            "Bot India",
-            "Bot Juliet"
-    );
 
     private final RoomRepository roomRepository;
     private final RoomPlayerRepository roomPlayerRepository;
@@ -597,10 +585,7 @@ public class RoomService {
         }
 
         List<RoomPlayer> existingPlayers = roomPlayerRepository.findByRoom_IdOrderByPlayerOrderAsc(room.getId());
-        boolean botsUseBoost = Boolean.TRUE.equals(room.getBoostAllowed())
-                && existingPlayers.stream()
-                .filter(player -> !isBot(player))
-                .anyMatch(player -> Boolean.TRUE.equals(player.getBoostUsed()));
+        boolean botsUseBoost = false;
 
         String roundId = buildRoundId(room.getId());
         LocalDateTime joinTime = LocalDateTime.now();
@@ -615,7 +600,7 @@ public class RoomService {
                     .username(botName(botNumber))
                     .walletReservationId(UUID.randomUUID())
                     .bot(true)
-                    .boostUsed(botsUseBoost)
+                    .boostUsed(false)
                     .roundId(roundId)
                     .playerOrder(seat)
                     .winner(false)
@@ -650,8 +635,7 @@ public class RoomService {
     }
 
     private String botName(int botNumber) {
-        String baseName = BOT_NAMES.get(Math.floorMod(botNumber - 1, BOT_NAMES.size()));
-        return botNumber <= BOT_NAMES.size() ? baseName : baseName + " " + botNumber;
+        return "Бот №" + botNumber;
     }
 
     private boolean isBot(RoomPlayer player) {
