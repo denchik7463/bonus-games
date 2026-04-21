@@ -14,11 +14,16 @@ public class RandomClient {
     }
 
     public RandomNumberResponse generate(int min, int max) {
+        return generate(min, max, 1);
+    }
+
+    public RandomNumberResponse generate(int min, int max, int count) {
         RandomNumberResponse response = restClient.post()
                 .uri(uriBuilder -> uriBuilder
                         .path("/api/random/generate")
                         .queryParam("min", min)
                         .queryParam("max", max)
+                        .queryParam("count", count)
                         .build())
                 .retrieve()
                 .body(RandomNumberResponse.class);
