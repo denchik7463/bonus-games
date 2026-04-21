@@ -26,6 +26,7 @@ public class FinishRoomResponse {
     public static class RoomPlayerSettlement {
         UUID userId;
         String username;
+        Boolean bot;
         UUID reservationId;
         String reservationStatus;
         Long balanceAfter;

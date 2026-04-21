@@ -12,6 +12,7 @@ public class RoomPlayerResponse {
     UUID userId;
     String username;
     UUID walletReservationId;
+    Boolean bot;
     Boolean boostUsed;
     String roundId;
     Integer playerOrder;

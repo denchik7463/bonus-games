@@ -57,6 +57,18 @@ public class RoomService {
     private static final String STATUS_FINISHED = "FINISHED";
     private static final String STATUS_CANCELLED = "CANCELLED";
     private static final List<String> ACTIVE_STATUSES = List.of(STATUS_WAITING, STATUS_FULL);
+    private static final List<String> BOT_NAMES = List.of(
+            "Bot Alpha",
+            "Bot Bravo",
+            "Bot Charlie",
+            "Bot Delta",
+            "Bot Echo",
+            "Bot Foxtrot",
+            "Bot Golf",
+            "Bot Hotel",
+            "Bot India",
+            "Bot Juliet"
+    );
 
     private final RoomRepository roomRepository;
     private final RoomPlayerRepository roomPlayerRepository;
@@ -314,6 +326,7 @@ public class RoomService {
                     .userId(user.getId())
                     .username(user.getUsername())
                     .walletReservationId(reservation.getReservationId())
+                    .bot(false)
                     .boostUsed(false)
                     .roundId(roundId)
                     .playerOrder(seat)
@@ -403,21 +416,25 @@ public class RoomService {
         for (int i = 0; i < players.size(); i++) {
             RoomPlayer p = players.get(i);
             boolean isWinner = i == winnerIndex;
-            BalanceResponse beforeBalance = walletService.getBalanceByUserId(p.getUserId());
-            balanceBeforeByUserId.put(p.getUserId(), beforeBalance.getTotal());
+            if (isBot(p)) {
+                balanceBeforeByUserId.put(p.getUserId(), 0L);
+            } else {
+                BalanceResponse beforeBalance = walletService.getBalanceByUserId(p.getUserId());
+                balanceBeforeByUserId.put(p.getUserId(), beforeBalance.getTotal());
 
-            String commitOperation = "room-commit:" + room.getId() + ":" + p.getWalletReservationId();
-            walletService.commitSystem(
-                    p.getWalletReservationId(),
-                    commitOperation,
-                    "Commit room entry for room " + room.getId()
-            );
-            if (p.getBoostReservationId() != null) {
+                String commitOperation = "room-commit:" + room.getId() + ":" + p.getWalletReservationId();
                 walletService.commitSystem(
-                        p.getBoostReservationId(),
-                        "room-boost-commit:" + room.getId() + ":" + p.getBoostReservationId(),
-                        "Commit boost reservation for room " + room.getId() + ", seat " + p.getPlayerOrder()
+                        p.getWalletReservationId(),
+                        commitOperation,
+                        "Commit room entry for room " + room.getId()
                 );
+                if (p.getBoostReservationId() != null) {
+                    walletService.commitSystem(
+                            p.getBoostReservationId(),
+                            "room-boost-commit:" + room.getId() + ":" + p.getBoostReservationId(),
+                            "Commit boost reservation for room " + room.getId() + ", seat " + p.getPlayerOrder()
+                    );
+                }
             }
 
             if (isWinner) {
@@ -436,22 +453,25 @@ public class RoomService {
         int winnerPercent = resolveWinnerPercent(room);
         long winnerPayout = Math.floorDiv(totalPool * winnerPercent, 100);
 
-        walletService.creditWin(
-                winnerPlayer.getUserId(),
-                winnerPayout,
-                "room-win:" + room.getId() + ":" + winnerPlayer.getUserId(),
-                "Prize payout for room " + room.getId()
-        );
+        if (!isBot(winnerPlayer)) {
+            walletService.creditWin(
+                    winnerPlayer.getUserId(),
+                    winnerPayout,
+                    "room-win:" + room.getId() + ":" + winnerPlayer.getUserId(),
+                    "Prize payout for room " + room.getId()
+            );
+        }
 
         for (int i = 0; i < players.size(); i++) {
             RoomPlayer p = players.get(i);
-            BalanceResponse balance = walletService.getBalanceByUserId(p.getUserId());
+            Long balanceAfter = isBot(p) ? 0L : walletService.getBalanceByUserId(p.getUserId()).getTotal();
             settlements.add(FinishRoomResponse.RoomPlayerSettlement.builder()
                     .userId(p.getUserId())
                     .username(p.getUsername())
+                    .bot(isBot(p))
                     .reservationId(p.getWalletReservationId())
-                    .reservationStatus("COMMITTED")
-                    .balanceAfter(balance.getTotal())
+                    .reservationStatus(isBot(p) ? "BOT_VIRTUAL" : "COMMITTED")
+                    .balanceAfter(balanceAfter)
                     .winner(i == winnerIndex)
                     .build());
         }
@@ -481,6 +501,7 @@ public class RoomService {
                 "Комната завершена, выбран победитель и начислен призовой фонд.",
                 "{\"winnerUserId\":\"" + winnerPlayer.getUserId()
                         + "\",\"winnerUsername\":\"" + escapeJson(winnerPlayer.getUsername())
+                        + "\",\"winnerBot\":" + isBot(winnerPlayer)
                         + "\",\"winnerIndex\":" + winnerIndex
                         + ",\"roll\":" + winner.getRoll()
                         + ",\"totalWeight\":" + winner.getTotalWeight()
@@ -516,17 +537,19 @@ public class RoomService {
 
         List<RoomPlayer> players = roomPlayerRepository.findByRoom_IdOrderByPlayerOrderAsc(roomId);
         for (RoomPlayer p : players) {
-            walletService.releaseSystem(
-                    p.getWalletReservationId(),
-                    "room-cancel-release:" + room.getId() + ":" + p.getWalletReservationId(),
-                    "Release due to room cancellation"
-            );
-            if (p.getBoostReservationId() != null) {
+            if (!isBot(p)) {
                 walletService.releaseSystem(
-                        p.getBoostReservationId(),
-                        "room-boost-cancel-release:" + room.getId() + ":" + p.getBoostReservationId(),
-                        "Release boost reservation due to room cancellation"
+                        p.getWalletReservationId(),
+                        "room-cancel-release:" + room.getId() + ":" + p.getWalletReservationId(),
+                        "Release due to room cancellation"
                 );
+                if (p.getBoostReservationId() != null) {
+                    walletService.releaseSystem(
+                            p.getBoostReservationId(),
+                            "room-boost-cancel-release:" + room.getId() + ":" + p.getBoostReservationId(),
+                            "Release boost reservation due to room cancellation"
+                    );
+                }
             }
             p.setWinner(false);
             p.setStatus("RELEASED");
@@ -556,11 +579,10 @@ public class RoomService {
 
         for (Room room : waitingRooms) {
             if (room.hasTimedOut()) {
-                if (shouldFinishTimedOutRoom(room)) {
-                    finishRoom(room.getId(), null);
-                } else {
-                    cancelRoom(room.getId(), "Таймер истек: недостаточно уникальных игроков, резервации освобождены.");
+                if (!STATUS_FULL.equals(room.getStatus())) {
+                    fillRoomWithBots(room);
                 }
+                finishRoom(room.getId(), null);
                 processed++;
             }
         }
@@ -568,17 +590,72 @@ public class RoomService {
         return processed;
     }
 
-    private boolean shouldFinishTimedOutRoom(Room room) {
-        if (!STATUS_FULL.equals(room.getStatus())) {
-            return false;
+    private int fillRoomWithBots(Room room) {
+        List<Integer> freeSeats = findFreeSeats(room.getId());
+        if (freeSeats.isEmpty()) {
+            return 0;
         }
-        List<RoomPlayer> players = roomPlayerRepository.findByRoom_IdOrderByPlayerOrderAsc(room.getId());
-        long distinctUsers = players.stream()
-                .map(RoomPlayer::getUserId)
-                .filter(java.util.Objects::nonNull)
-                .distinct()
-                .count();
-        return distinctUsers >= 2;
+
+        List<RoomPlayer> existingPlayers = roomPlayerRepository.findByRoom_IdOrderByPlayerOrderAsc(room.getId());
+        boolean botsUseBoost = Boolean.TRUE.equals(room.getBoostAllowed())
+                && existingPlayers.stream()
+                .filter(player -> !isBot(player))
+                .anyMatch(player -> Boolean.TRUE.equals(player.getBoostUsed()));
+
+        String roundId = buildRoundId(room.getId());
+        LocalDateTime joinTime = LocalDateTime.now();
+        int existingBotCount = room.getBotCount() == null ? 0 : room.getBotCount();
+        int addedBots = 0;
+
+        for (Integer seat : freeSeats) {
+            int botNumber = existingBotCount + addedBots + 1;
+            RoomPlayer bot = RoomPlayer.builder()
+                    .room(room)
+                    .userId(UUID.randomUUID())
+                    .username(botName(botNumber))
+                    .walletReservationId(UUID.randomUUID())
+                    .bot(true)
+                    .boostUsed(botsUseBoost)
+                    .roundId(roundId)
+                    .playerOrder(seat)
+                    .winner(false)
+                    .joinTime(joinTime)
+                    .status("BOT_JOINED")
+                    .build();
+            room.addPlayer(bot);
+            roomPlayerRepository.save(bot);
+            addedBots++;
+        }
+
+        room.setBotCount(existingBotCount + addedBots);
+        room.setCurrentPlayers(existingPlayers.size() + addedBots);
+        room.setPrizeFund((room.getPrizeFund() == null ? 0 : room.getPrizeFund()) + room.getEntryCost() * addedBots);
+        room.setStatus(STATUS_FULL);
+        roomRepository.save(room);
+
+        roundEventLogService.logSystemEvent(
+                room.getId(),
+                null,
+                "BOTS_FILLED",
+                "Bots filled room",
+                "Timed-out room was filled with bot seats.",
+                "{\"botCount\":" + addedBots
+                        + ",\"boostUsed\":" + botsUseBoost
+                        + ",\"currentPlayers\":" + room.getCurrentPlayers()
+                        + ",\"prizeFund\":" + room.getPrizeFund() + "}"
+        );
+        publishRoomRealtime(room.getId());
+
+        return addedBots;
+    }
+
+    private String botName(int botNumber) {
+        String baseName = BOT_NAMES.get(Math.floorMod(botNumber - 1, BOT_NAMES.size()));
+        return botNumber <= BOT_NAMES.size() ? baseName : baseName + " " + botNumber;
+    }
+
+    private boolean isBot(RoomPlayer player) {
+        return Boolean.TRUE.equals(player.getBot());
     }
 
     @Transactional(readOnly = true)
@@ -623,6 +700,7 @@ public class RoomService {
                 .userId(player.getUserId())
                 .username(player.getUsername())
                 .walletReservationId(player.getWalletReservationId())
+                .bot(isBot(player))
                 .boostUsed(player.getBoostUsed())
                 .roundId(player.getRoundId())
                 .playerOrder(player.getPlayerOrder())
@@ -713,7 +791,7 @@ public class RoomService {
         for (int i = 0; i < players.size(); i++) {
             RoomPlayer player = players.get(i);
             long before = balanceBeforeByUserId.getOrDefault(player.getUserId(), 0L);
-            long after = walletService.getBalanceByUserId(player.getUserId()).getTotal();
+            long after = isBot(player) ? 0L : walletService.getBalanceByUserId(player.getUserId()).getTotal();
 
             int finalWeight = 0;
             if (winner.getPlayers() != null && i < winner.getPlayers().size()) {
@@ -724,7 +802,7 @@ public class RoomService {
                     .positionIndex(i)
                     .playerExternalId(player.getUserId().toString())
                     .username(player.getUsername())
-                    .bot(false)
+                    .bot(isBot(player))
                     .boostUsed(Boolean.TRUE.equals(player.getBoostUsed()))
                     .finalWeight(finalWeight)
                     .balanceBefore(before)
