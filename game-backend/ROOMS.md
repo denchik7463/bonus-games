@@ -46,6 +46,151 @@
 - У каждой новой комнаты есть `shortId` (пример: `042731`).
 - `shortId` уникален только среди **активных** комнат (`WAITING`, `FULL`).
 - После `FINISHED`/`CANCELLED` код может быть переиспользован.
+- `shortId` возвращается в обычных API-ответах комнаты:
+  - `GET /api/rooms`
+  - `GET /api/rooms/{id}`
+  - `GET /api/rooms/waiting`
+  - `GET /api/rooms/filter`
+  - `GET /api/rooms/{roomId}/state`
+  - WebSocket `ROOM_STATE.payload.shortId`
+
+Примеры JSON-ответов:
+
+`GET /api/rooms` (массив комнат):
+
+```json
+[
+  {
+    "id": "67169950-88a5-4d7d-83e2-569ff1514971",
+    "shortId": "042731",
+    "templateId": "b7be5840-71fb-4c8b-9250-e5c399a4cc76",
+    "maxPlayers": 4,
+    "entryCost": 100,
+    "prizeFund": 200,
+    "boostAllowed": true,
+    "timerSeconds": 60,
+    "status": "WAITING",
+    "currentPlayers": 2,
+    "botCount": 0,
+    "createdAt": "2026-04-21T13:10:00.000",
+    "remainingSeconds": 41
+  }
+]
+```
+
+`GET /api/rooms/{id}`:
+
+```json
+{
+  "id": "67169950-88a5-4d7d-83e2-569ff1514971",
+  "shortId": "042731",
+  "templateId": "b7be5840-71fb-4c8b-9250-e5c399a4cc76",
+  "maxPlayers": 4,
+  "entryCost": 100,
+  "prizeFund": 200,
+  "boostAllowed": true,
+  "timerSeconds": 60,
+  "status": "WAITING",
+  "currentPlayers": 2,
+  "botCount": 0,
+  "createdAt": "2026-04-21T13:10:00.000",
+  "remainingSeconds": 41
+}
+```
+
+`GET /api/rooms/waiting`:
+
+```json
+[
+  {
+    "id": "67169950-88a5-4d7d-83e2-569ff1514971",
+    "shortId": "042731",
+    "templateId": "b7be5840-71fb-4c8b-9250-e5c399a4cc76",
+    "maxPlayers": 4,
+    "entryCost": 100,
+    "prizeFund": 200,
+    "boostAllowed": true,
+    "timerSeconds": 60,
+    "status": "WAITING",
+    "currentPlayers": 2,
+    "botCount": 0,
+    "createdAt": "2026-04-21T13:10:00.000",
+    "remainingSeconds": 41
+  }
+]
+```
+
+`GET /api/rooms/filter?maxPlayers=4&entryCost=100&boostAllowed=true`:
+
+```json
+[
+  {
+    "id": "67169950-88a5-4d7d-83e2-569ff1514971",
+    "shortId": "042731",
+    "templateId": "b7be5840-71fb-4c8b-9250-e5c399a4cc76",
+    "maxPlayers": 4,
+    "entryCost": 100,
+    "prizeFund": 200,
+    "boostAllowed": true,
+    "timerSeconds": 60,
+    "status": "WAITING",
+    "currentPlayers": 2,
+    "botCount": 0,
+    "createdAt": "2026-04-21T13:10:00.000",
+    "remainingSeconds": 41
+  }
+]
+```
+
+`GET /api/rooms/{roomId}/state`:
+
+```json
+{
+  "roomId": "67169950-88a5-4d7d-83e2-569ff1514971",
+  "shortId": "042731",
+  "status": "WAITING",
+  "currentPlayers": 2,
+  "maxPlayers": 4,
+  "entryCost": 100,
+  "prizeFund": 200,
+  "timerSeconds": 60,
+  "remainingSeconds": 41,
+  "createdAt": "2026-04-21T13:10:00.000",
+  "firstPlayerJoinedAt": "2026-04-21T13:10:19.000",
+  "startedAt": null,
+  "finishedAt": null,
+  "players": [
+    {
+      "userId": "69e62862-7fd9-40f0-b135-5f6221e194a4",
+      "username": "denis",
+      "walletReservationId": "2d90f7f8-ddea-467b-b5ce-9d24c49b88bc",
+      "boostUsed": false,
+      "roundId": "room-67169950-88a5-4d7d-83e2-569ff1514971-round-1",
+      "playerOrder": 1,
+      "winner": false,
+      "status": "JOINED",
+      "joinTime": "2026-04-21T13:10:20.100"
+    }
+  ]
+}
+```
+
+WebSocket `ROOM_STATE`:
+
+```json
+{
+  "type": "ROOM_STATE",
+  "roomId": "67169950-88a5-4d7d-83e2-569ff1514971",
+  "payload": {
+    "roomId": "67169950-88a5-4d7d-83e2-569ff1514971",
+    "shortId": "042731",
+    "status": "WAITING",
+    "currentPlayers": 2,
+    "maxPlayers": 4
+  },
+  "sentAt": "2026-04-21T13:10:20.520Z"
+}
+```
 
 ### Создать комнату
 
