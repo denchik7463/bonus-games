@@ -56,6 +56,7 @@ public class RoomService {
     private static final String STATUS_FULL = "FULL";
     private static final String STATUS_FINISHED = "FINISHED";
     private static final String STATUS_CANCELLED = "CANCELLED";
+    private static final List<String> ACTIVE_STATUSES = List.of(STATUS_WAITING, STATUS_FULL);
 
     private final RoomRepository roomRepository;
     private final RoomPlayerRepository roomPlayerRepository;
@@ -211,6 +212,11 @@ public class RoomService {
     }
 
     @Transactional(readOnly = true)
+    public RoomResponse getRoomByShortId(String shortId) {
+        return toResponse(findRoomByShortId(shortId));
+    }
+
+    @Transactional(readOnly = true)
     public List<RoomResponse> getAllRooms() {
         return roomRepository.findAll().stream().map(this::toResponse).toList();
     }
@@ -230,6 +236,7 @@ public class RoomService {
 
         return RoomStateResponse.builder()
                 .roomId(room.getId())
+                .shortId(room.getShortId())
                 .status(room.getStatus())
                 .currentPlayers(room.getCurrentPlayers())
                 .maxPlayers(room.getMaxPlayers())
@@ -350,6 +357,12 @@ public class RoomService {
                 .reservationId(reservation.getReservationId())
                 .balance(reservation.getBalance())
                 .build();
+    }
+
+    @Transactional
+    public JoinRoomResponse joinRoomByShortId(String shortId, User user, JoinRoomRequest request) {
+        Room room = findRoomByShortId(shortId);
+        return joinRoom(room.getId(), user, request);
     }
 
     @Transactional
@@ -584,6 +597,23 @@ public class RoomService {
                 .orElseThrow(() -> new NotFoundException("Room not found: " + roomId));
     }
 
+    private Room findRoomByShortId(String shortId) {
+        String normalized = normalizeShortId(shortId);
+        return roomRepository.findByShortIdAndStatusIn(normalized, ACTIVE_STATUSES)
+                .orElseThrow(() -> new NotFoundException("Room not found by shortId: " + normalized));
+    }
+
+    private String normalizeShortId(String shortId) {
+        if (shortId == null) {
+            throw new IllegalArgumentException("shortId is required");
+        }
+        String normalized = shortId.trim();
+        if (!normalized.matches("\\d{6}")) {
+            throw new IllegalArgumentException("shortId must be exactly 6 digits");
+        }
+        return normalized;
+    }
+
     private String buildRoundId(UUID roomId) {
         return "room-" + roomId + "-round-1";
     }
@@ -605,6 +635,7 @@ public class RoomService {
     private RoomResponse toResponse(Room room) {
         return RoomResponse.builder()
                 .id(room.getId())
+                .shortId(room.getShortId())
                 .templateId(room.getTemplateId())
                 .maxPlayers(room.getMaxPlayers())
                 .entryCost(room.getEntryCost())
@@ -628,6 +659,7 @@ public class RoomService {
 
         return Room.builder()
                 .id(UUID.randomUUID())
+                .shortId(generateUniqueShortRoomId())
                 .templateId(template.getId())
                 .maxPlayers(template.getMaxPlayers())
                 .entryCost(template.getEntryCost())
@@ -639,6 +671,16 @@ public class RoomService {
                 .botCount(0)
                 .createdAt(LocalDateTime.now())
                 .build();
+    }
+
+    private String generateUniqueShortRoomId() {
+        for (int i = 0; i < 32; i++) {
+            String shortId = String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000));
+            if (!roomRepository.existsByShortIdAndStatusIn(shortId, ACTIVE_STATUSES)) {
+                return shortId;
+            }
+        }
+        throw new IllegalStateException("Unable to generate unique room shortId");
     }
 
     private GameResult saveGameResult(Room room,

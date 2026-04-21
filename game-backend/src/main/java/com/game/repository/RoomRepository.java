@@ -13,6 +13,10 @@ import java.util.List;
 
 public interface RoomRepository extends JpaRepository<Room, UUID> {
 
+    java.util.Optional<Room> findByShortIdAndStatusIn(String shortId, List<String> statuses);
+
+    boolean existsByShortIdAndStatusIn(String shortId, List<String> statuses);
+
     List<Room> findByStatus(String status);
 
     List<Room> findByStatusIn(List<String> statuses);

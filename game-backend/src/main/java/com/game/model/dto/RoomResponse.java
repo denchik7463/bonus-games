@@ -11,6 +11,7 @@ import java.util.UUID;
 public class RoomResponse {
 
     private UUID id;
+    private String shortId;
     private UUID templateId;
     private Integer maxPlayers;
     private Integer entryCost;

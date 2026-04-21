@@ -11,6 +11,7 @@ import java.util.UUID;
 @Builder
 public class RoomStateResponse {
     UUID roomId;
+    String shortId;
     String status;
     Integer currentPlayers;
     Integer maxPlayers;

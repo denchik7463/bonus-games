@@ -52,6 +52,12 @@ public class RoomController {
         return roomService.getRoomById(id);
     }
 
+    @GetMapping("/code/{shortId}")
+    public RoomResponse getRoomByShortId(@PathVariable String shortId) {
+        RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
+        return roomService.getRoomByShortId(shortId);
+    }
+
     @GetMapping("/{roomId}/state")
     public RoomStateResponse roomState(@PathVariable UUID roomId) {
         RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
@@ -69,6 +75,13 @@ public class RoomController {
         RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
         User user = UserContext.getRequired();
         return roomService.joinRoom(roomId, user, request);
+    }
+
+    @PostMapping("/code/{shortId}/join")
+    public JoinRoomResponse joinRoomByShortId(@PathVariable String shortId, @Valid @RequestBody JoinRoomRequest request) {
+        RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
+        User user = UserContext.getRequired();
+        return roomService.joinRoomByShortId(shortId, user, request);
     }
 
     @PostMapping("/{roomId}/boost/activate")

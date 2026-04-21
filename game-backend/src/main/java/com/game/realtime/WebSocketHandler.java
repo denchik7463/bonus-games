@@ -112,6 +112,7 @@ public class WebSocketHandler extends TextWebSocketHandler {
             List<RoomPlayer> players = roomPlayerRepository.findByRoom_IdOrderByPlayerOrderAsc(roomId);
             Map<String, Object> roomState = new LinkedHashMap<>();
             roomState.put("roomId", room.getId());
+            roomState.put("shortId", room.getShortId());
             roomState.put("status", room.getStatus());
             roomState.put("currentPlayers", room.getCurrentPlayers());
             roomState.put("maxPlayers", room.getMaxPlayers());

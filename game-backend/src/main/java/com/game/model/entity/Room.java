@@ -21,6 +21,9 @@ public class Room {
     @Id
     private UUID id;
 
+    @Column(name = "short_id", nullable = false, length = 6)
+    private String shortId;
+
     @Column(name = "template_id")
     private UUID templateId;
 

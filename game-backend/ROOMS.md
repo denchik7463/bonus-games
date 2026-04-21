@@ -41,6 +41,12 @@
 Основной префикс: `/api/rooms`  
 Отдельный endpoint поиска/подбора комнаты: `/api/room/find`
 
+### Короткий ID комнаты (6 цифр)
+
+- У каждой новой комнаты есть `shortId` (пример: `042731`).
+- `shortId` уникален только среди **активных** комнат (`WAITING`, `FULL`).
+- После `FINISHED`/`CANCELLED` код может быть переиспользован.
+
 ### Создать комнату
 
 `POST /api/rooms/create`
@@ -168,6 +174,36 @@
 `GET /api/rooms/{roomId}/state`
 
 Роль: `USER`, `EXPERT`, `ADMIN`
+
+### Получить комнату по короткому ID
+
+`GET /api/rooms/code/{shortId}`
+
+Роль: `USER`, `EXPERT`, `ADMIN`
+
+Пример:
+
+```bash
+curl -H "Authorization: Bearer $USER_TOKEN" \
+  "http://localhost:8081/api/rooms/code/042731"
+```
+
+### Присоединиться к комнате по короткому ID
+
+`POST /api/rooms/code/{shortId}/join`
+
+Роль: `USER`, `EXPERT`, `ADMIN`
+
+Пример:
+
+```bash
+curl -X POST "http://localhost:8081/api/rooms/code/042731/join" \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "seatsCount": 1
+  }'
+```
 
 ### Получить события комнаты
 
