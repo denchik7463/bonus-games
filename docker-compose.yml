@@ -1,7 +1,6 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: bonus-postgres
     environment:
       POSTGRES_DB: game_backend
       POSTGRES_USER: game
@@ -20,7 +19,6 @@ services:
     build:
       context: ./random-service
       dockerfile: Dockerfile
-    container_name: random-service
     environment:
       APP_HASH_SECRET: my-super-secret-key-change-me
     ports:
@@ -33,7 +31,6 @@ services:
     build:
       context: ./game-backend
       dockerfile: Dockerfile
-    container_name: game-backend
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/game_backend
       DB_USERNAME: game
@@ -45,6 +42,21 @@ services:
       postgres:
         condition: service_healthy
       random-service:
+        condition: service_started
+
+  front:
+    build:
+      context: ./front
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: /backend-api
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: /backend-api
+      BACKEND_API_BASE_URL: http://game-backend:8081
+    ports:
+      - "3000:3000"
+    depends_on:
+      game-backend:
         condition: service_started
 
 volumes:
