@@ -1,5 +1,6 @@
 package com.game.repository;
 
+import com.game.model.dto.PopularRoomTemplateResponse;
 import com.game.model.entity.RoomConfig;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -24,4 +25,20 @@ public interface RoomConfigRepository extends JpaRepository<RoomConfig, UUID> {
 
     @Query("select distinct rc.entryCost from RoomConfig rc order by rc.entryCost asc")
     List<Integer> findDistinctEntryCosts();
+
+    @Query("""
+            select new com.game.model.dto.PopularRoomTemplateResponse(
+                rc.id,
+                rc.templateName,
+                count(r.id),
+                rc.maxPlayers,
+                rc.entryCost,
+                rc.bonusEnabled
+            )
+            from RoomConfig rc
+            left join Room r on r.templateId = rc.id
+            group by rc.id, rc.templateName, rc.maxPlayers, rc.entryCost, rc.bonusEnabled
+            order by count(r.id) desc, rc.templateName asc
+            """)
+    List<PopularRoomTemplateResponse> findPopularTemplates();
 }

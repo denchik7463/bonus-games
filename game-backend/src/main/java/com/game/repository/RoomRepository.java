@@ -9,6 +9,7 @@ import jakarta.persistence.LockModeType;
 
 import java.util.UUID;
 import java.util.List;
+import java.time.LocalDateTime;
 
 
 public interface RoomRepository extends JpaRepository<Room, UUID> {
@@ -20,6 +21,8 @@ public interface RoomRepository extends JpaRepository<Room, UUID> {
     List<Room> findByStatus(String status);
 
     List<Room> findByStatusIn(List<String> statuses);
+
+    List<Room> findByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""

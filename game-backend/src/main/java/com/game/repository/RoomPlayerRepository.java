@@ -8,6 +8,7 @@ import jakarta.persistence.LockModeType;
 
 import java.util.List;
 import java.util.UUID;
+import java.time.LocalDateTime;
 
 public interface RoomPlayerRepository extends JpaRepository<RoomPlayer, Long> {
     boolean existsByRoom_IdAndPlayerOrder(UUID roomId, Integer playerOrder);
@@ -31,4 +32,6 @@ public interface RoomPlayerRepository extends JpaRepository<RoomPlayer, Long> {
     java.util.Optional<RoomPlayer> findByRoomIdAndUserIdAndPlayerOrderForUpdate(UUID roomId, UUID userId, Integer playerOrder);
 
     List<RoomPlayer> findByRoom_IdOrderByPlayerOrderAsc(UUID roomId);
+
+    List<RoomPlayer> findByJoinTimeBetweenOrderByJoinTimeAsc(LocalDateTime start, LocalDateTime end);
 }
