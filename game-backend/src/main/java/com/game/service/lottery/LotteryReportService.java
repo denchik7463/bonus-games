@@ -99,22 +99,33 @@ public class LotteryReportService {
 
     private static class PdfReportGenerator {
 
-        private static final Color C_BG = new Color(0xF8, 0xF9, 0xFB);
-        private static final Color C_CARD = new Color(0xF1, 0xF1, 0xF1);
-        private static final Color C_CARD_ALT = new Color(0xE9, 0xE9, 0xE9);
-        private static final Color C_ACCENT = new Color(0x2E, 0x5B, 0x8A);
-        private static final Color C_TEXT = new Color(0x22, 0x22, 0x22);
-        private static final Color C_TEXT_SOFT = new Color(0x5F, 0x5F, 0x5F);
-        private static final Color C_BORDER = new Color(0xC8, 0xC8, 0xC8);
-        private static final Color C_CHART = new Color(0x6C, 0x84, 0x9B);
-        private static final Color C_ERR = new Color(0x77, 0x77, 0x77);
-        private static final Color C_WARN = new Color(0x95, 0x95, 0x95);
+        // ─── Palette ───────────────────────────────────────────────────────────
+        // Pure white background – no tints, no off-white fills
+        private static final Color C_WHITE      = Color.WHITE;
+        // Single accent: dark navy used for header bar, section rules, table headers, left bars
+        private static final Color C_ACCENT     = new Color(0x1A, 0x3A, 0x5C);
+        // Accent variant for chart bars (lighter blue)
+        private static final Color C_ACCENT_LT  = new Color(0x3A, 0x6E, 0xA8);
+        // Primary text
+        private static final Color C_TEXT       = new Color(0x11, 0x11, 0x11);
+        // Secondary / caption text
+        private static final Color C_TEXT_MUTED = new Color(0x66, 0x66, 0x66);
+        // Table row separator and borders – thin, light
+        private static final Color C_RULE       = new Color(0xD8, 0xD8, 0xD8);
+        // Alternate row fill – barely-there grey, no visible shade
+        private static final Color C_ROW_ALT    = new Color(0xF7, 0xF7, 0xF7);
+        // Error badge foreground
+        private static final Color C_ERR        = new Color(0xB0, 0x20, 0x20);
+        // Warning badge foreground
+        private static final Color C_WARN       = new Color(0x8A, 0x60, 0x00);
 
-        private static final float PW = PDRectangle.A4.getWidth();
-        private static final float PH = PDRectangle.A4.getHeight();
-        private static final float MARGIN = 36f;
-        private static final float CW = PW - MARGIN * 2;
+        // ─── Layout constants ──────────────────────────────────────────────────
+        private static final float PW     = PDRectangle.A4.getWidth();
+        private static final float PH     = PDRectangle.A4.getHeight();
+        private static final float MARGIN = 40f;
+        private static final float CW     = PW - MARGIN * 2;
 
+        // ─── State ─────────────────────────────────────────────────────────────
         private final PDDocument doc;
         private PDPage page;
         private PDPageContentStream cs;
@@ -127,10 +138,13 @@ public class LotteryReportService {
         private PdfReportGenerator(PDDocument doc) throws Exception {
             this.doc = doc;
             fRegular = loadUnicodeFont(doc, false);
-            fBold = loadUnicodeFont(doc, true);
-            fMono = loadUnicodeFont(doc, false);
+            fBold    = loadUnicodeFont(doc, true);
+            fMono    = fRegular; // same face, used at smaller size for code
         }
 
+        // ───────────────────────────────────────────────────────────────────────
+        //  Entry point
+        // ───────────────────────────────────────────────────────────────────────
         @SuppressWarnings("unchecked")
         static byte[] generate(List<Player> players, Config cfg, Map<String, Object> result) throws Exception {
             try (PDDocument doc = new PDDocument()) {
@@ -141,65 +155,86 @@ public class LotteryReportService {
             }
         }
 
+        // ───────────────────────────────────────────────────────────────────────
+        //  Document assembly
+        // ───────────────────────────────────────────────────────────────────────
         @SuppressWarnings("unchecked")
         private void build(List<Player> players, Config cfg, Map<String, Object> result) throws Exception {
             Map<String, Object> metrics = (Map<String, Object>) result.get("metrics");
             List<Map<String, Object>> warnings = (List<Map<String, Object>>) result.get("warnings");
-            boolean blocked = Boolean.TRUE.equals(result.get("blocked"));
-            double[] probs = toDoubleArr(result.get("probs"));
-            double[] weights = toDoubleArr(result.get("weights"));
-            String[] names = toStringArr(result.get("names"));
+            boolean blocked   = Boolean.TRUE.equals(result.get("blocked"));
+            double[] probs    = toDoubleArr(result.get("probs"));
+            double[] weights  = toDoubleArr(result.get("weights"));
+            String[] names    = toStringArr(result.get("names"));
             Map<String, Integer> wins = (Map<String, Integer>) result.get("wins");
 
-            long errCount = warnings.stream().filter(w -> "error".equals(w.get("level"))).count();
+            long errCount  = warnings.stream().filter(w -> "error".equals(w.get("level"))).count();
             long warnCount = warnings.stream().filter(w -> "warning".equals(w.get("level"))).count();
 
             newPage();
 
-            float headerH = 74f;
-            fillRect(MARGIN, y - headerH, CW, headerH, C_ACCENT);
+            // ── Header – plain text, no background bar ────────────────────────
             String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"));
-            textCentered("Отчет по конфигурации лотереи", fBold, 18, Color.WHITE, y - 22);
-            textCentered("Сформирован: " + ts, fRegular, 9, Color.WHITE, y - 38);
-            String statusStr = blocked ? "ЗАПУСК ЗАБЛОКИРОВАН" : "КОНФИГУРАЦИЯ ДОПУСТИМА";
-            textCentered(statusStr, fBold, 11, Color.WHITE, y - 56);
-            y -= headerH + 10;
-
-            float cardW = CW / 3f;
-            drawCard(MARGIN, y, cardW, "Игроков", String.valueOf(players.size()), C_CARD);
-            drawCard(MARGIN + cardW, y, cardW, "Блокирующих", String.valueOf(errCount), C_CARD);
-            drawCard(MARGIN + cardW * 2, y, cardW, "Предупреждений", String.valueOf(warnCount), C_CARD);
-            y -= 56;
-            ensureSpace(34);
-            wrappedText(
-                    "Краткая интерпретация: сначала смотрите число блокирующих ошибок. Если оно больше нуля, конфигурация требует обязательной правки. " +
-                            "Предупреждения не блокируют запуск, но показывают зоны риска для баланса, честности и экономики комнаты.",
-                    fRegular, 8.8f, C_TEXT_SOFT, MARGIN, y, CW, 11f
-            );
+            textCentered("Отчет по конфигурации лотереи", fBold, 20, C_TEXT, y - 10);
             y -= 28;
+            hRule(C_ACCENT, 1.5f);
+            y -= 10;
+            text("Дата формирования: " + ts, fRegular, 8.5f, C_TEXT_MUTED, MARGIN, y);
+            String statusStr = blocked ? "Статус: ЗАПУСК ЗАБЛОКИРОВАН" : "Статус: КОНФИГУРАЦИЯ ДОПУСТИМА";
+            Color statusColor = blocked ? C_ERR : new Color(0x1A, 0x70, 0x40);
+            float statusW = fBold.getStringWidth(ascii(statusStr)) / 1000f * 8.5f;
+            text(statusStr, fBold, 8.5f, statusColor, MARGIN + CW - statusW, y);
+            y -= 20;
 
+            // ── Summary strip (3 inline KPI cells, no filled background) ──────
+            float cellW = CW / 3f;
+            kpiCell(MARGIN,           y, cellW, "Игроков",        String.valueOf(players.size()));
+            kpiCell(MARGIN + cellW,   y, cellW, "Блокирующих",    String.valueOf(errCount));
+            kpiCell(MARGIN + cellW*2, y, cellW, "Предупреждений", String.valueOf(warnCount));
+            y -= 48;
+
+            // ── Annotation ────────────────────────────────────────────────────
+            y -= 10;
+            ensureSpace(50);
+            float annoEnd = wrappedText(
+                    "Краткая интерпретация: сначала смотрите число блокирующих ошибок. " +
+                            "Если оно больше нуля, конфигурация требует обязательной правки. " +
+                            "Предупреждения не блокируют запуск, но показывают зоны риска " +
+                            "для баланса, честности и экономики комнаты.",
+                    fRegular, 8.5f, C_TEXT_MUTED, MARGIN, y, CW, 12f
+            );
+            y = annoEnd - 16;
+
+            // ── Sections ──────────────────────────────────────────────────────
             sectionHeader("Параметры конфигурации");
-            String playerNames = players.stream().map(p -> p.name).reduce((a, b) -> a + ", " + b).orElse("-");
-            String boostedNames = players.stream().filter(p -> p.boost).map(p -> p.name).reduce((a, b) -> a + ", " + b).orElse("нет");
-            String[][] cfgRows = {
-                    {"Базовый вес (baseWeight)", fmt(cfg.baseWeight), "Базовый вклад игрока в формулу шанса"},
-                    {"Бонус буста (boostBonus)", fmt(cfg.boostBonus), "Дополнительный вес при активном бусте"},
-                    {"Цена буста (boostCost)", fmt(cfg.boostCost), "Доплата игрока за использование буста"},
-                    {"Цена входа (entryCost)", fmt(cfg.entryCost), "Стоимость участия для каждого игрока"},
-                    {"Выплата победителю (winnerPercent)", fmt(cfg.winnerPercent) + "%", "Доля общего пула, уходящая победителю"},
-                    {"Раунды симуляции (simRounds)", String.valueOf(cfg.simRounds), "Количество прогонов симуляции побед"},
-                    {"Игроки (players)", playerNames, "Список имен игроков, полученных в запросе"},
-                    {"Игроки с бустом (boosted)", boostedNames, "Подмножество игроков с активным бустом"}
+            String playerNames  = players.stream().map(p -> p.name).reduce((a, b) -> a + ", " + b).orElse("-");
+            String boostedNames = players.stream().filter(p -> p.boost).map(p -> p.name)
+                    .reduce((a, b) -> a + ", " + b).orElse("нет");
+            // Fixed-height rows (col widths: param 32%, value 18%, note 50%)
+            float[] cfgColW = {CW * 0.32f, CW * 0.18f, CW * 0.50f};
+            String[][] cfgRowsSimple = {
+                    {"Базовый вес (baseWeight)",           fmt(cfg.baseWeight),          "Базовый вклад игрока в формулу шанса"},
+                    {"Бонус буста (boostBonus)",           fmt(cfg.boostBonus),           "Дополнительный вес при активном бусте"},
+                    {"Цена буста (boostCost)",             fmt(cfg.boostCost),            "Доплата игрока за использование буста"},
+                    {"Цена входа (entryCost)",             fmt(cfg.entryCost),            "Стоимость участия для каждого игрока"},
+                    {"Выплата победителю (winnerPercent)", fmt(cfg.winnerPercent) + "%",  "Доля общего пула, уходящая победителю"},
+                    {"Раунды симуляции (simRounds)",       String.valueOf(cfg.simRounds), "Количество прогонов симуляции побед"}
             };
             drawTable(new String[]{"Параметр", "Значение", "Пояснение"},
-                    cfgRows, new float[]{CW * 0.32f, CW * 0.18f, CW * 0.50f}, new int[]{1});
-            ensureSpace(30);
-            wrappedText(
-                    "Этот блок фиксирует исходные данные расчета. Любое изменение параметров напрямую влияет на вероятности, призовой фонд и предупреждения, " +
-                            "поэтому при анализе спорных результатов сначала сверяйте именно эти значения.",
-                    fRegular, 8.8f, C_TEXT_SOFT, MARGIN, y, CW, 11f
+                    cfgRowsSimple, cfgColW, new int[]{1});
+            // Wrap-aware rows for long player lists
+            drawWrappedRow("Игроки (players)",    playerNames,  "Список игроков из запроса",              cfgColW);
+            drawWrappedRow("Игроки с бустом (boosted)", boostedNames, "Подмножество игроков с активным бустом", cfgColW);
+            y -= 6;
+
+            ensureSpace(42);
+            float afterNote = wrappedText(
+                    "Этот блок фиксирует исходные данные расчета. Любое изменение параметров напрямую влияет " +
+                            "на вероятности, призовой фонд и предупреждения, поэтому при анализе спорных результатов " +
+                            "сначала сверяйте именно эти значения.",
+                    fRegular, 8.5f, C_TEXT_MUTED, MARGIN, y, CW, 12f
             );
-            y -= 24;
+            y = afterNote - 14;
 
             sectionHeader("Логика и формулы расчета");
             formulaBlock("Вес игрока",
@@ -254,19 +289,21 @@ public class LotteryReportService {
                     new String[]{"ROI_i = (P_i * S) / C_i", "ROI_avg = (1/N) * sum(ROI_i)"},
                     "ROI показывает, сколько ожидаемой ценности приходится на единицу стоимости участия.");
 
+            newPage();
             sectionHeader("Ключевые метрики");
             String[][] metRows = {
-                    {"Сумма входов", fmtVal(metrics, "totalEntry") + " бонусов"},
-                    {"Призовой фонд", fmtVal(metrics, "prizePool") + " бонусов"},
-                    {"Прибыль организатора", fmtVal(metrics, "houseProfit") + " бонусов"},
-                    {"Процент организатора", pct(metrics, "houseMargin")},
-                    {"Средний ROI игроков", fmtVal(metrics, "averagePlayerROI")},
-                    {"Минимальный ROI", fmtVal(metrics, "minPlayerROI")},
-                    {"Доля игроков с отриц. ожиданием", pct(metrics, "unprofitableShare")},
-                    {"Влияние буста", pct(metrics, "boostImpactShare")},
-                    {"Эффективность буста к цене входа+буста", pct(metrics, "boostEfficiencyVsCosts")}
+                    {"Сумма входов",                          fmtVal(metrics, "totalEntry") + " бонусов"},
+                    {"Призовой фонд",                         fmtVal(metrics, "prizePool") + " бонусов"},
+                    {"Прибыль организатора",                  fmtVal(metrics, "houseProfit") + " бонусов"},
+                    {"Процент организатора",                  pct(metrics, "houseMargin")},
+                    {"Средний ROI игроков",                   fmtVal(metrics, "averagePlayerROI")},
+                    {"Минимальный ROI",                       fmtVal(metrics, "minPlayerROI")},
+                    {"Доля игроков с отриц. ожиданием",       pct(metrics, "unprofitableShare")},
+                    {"Влияние буста",                         pct(metrics, "boostImpactShare")},
+                    {"Эффективность буста к цене входа+буста",pct(metrics, "boostEfficiencyVsCosts")}
             };
-            drawTable(new String[]{"Метрика", "Значение"}, metRows, new float[]{CW * 0.65f, CW * 0.35f}, new int[]{1});
+            drawTable(new String[]{"Метрика", "Значение"}, metRows,
+                    new float[]{CW * 0.65f, CW * 0.35f}, new int[]{1});
 
             sectionHeader("Игроки и вероятности победы");
             List<String[]> pRows = new ArrayList<>();
@@ -287,13 +324,14 @@ public class LotteryReportService {
                     new float[]{CW * 0.28f, CW * 0.10f, CW * 0.14f, CW * 0.18f, CW * 0.30f},
                     new int[]{1, 2, 3, 4});
 
+            newPage();
             sectionHeader("Гистограмма побед (по симуляции)");
             if (wins != null && !wins.isEmpty() && !blocked) {
                 drawWinsHistogram(wins, cfg.simRounds);
             } else {
                 formulaBlock("Нет данных для гистограммы",
-                        new String[]{"blocked = true => wins = empty"},
-                        "Симуляция не выполнялась из-за блокирующих предупреждений, поэтому гистограмма недоступна.");
+                        new String[]{"blocked = true  =>  wins = empty"},
+                        "Симуляция не выполнялась из-за блокирующих предупреждений.");
             }
 
             if (!warnings.isEmpty()) {
@@ -303,175 +341,335 @@ public class LotteryReportService {
                 }
             }
 
-            if (cs != null) {
-                cs.close();
+            // ── Footer rule on last page ───────────────────────────────────────
+            ensureSpace(24);
+            y -= 14;
+            hRule(C_RULE, 0.5f);
+            text("Lottery Report Service  —  сгенерировано автоматически", fRegular, 7.5f, C_TEXT_MUTED,
+                    MARGIN, y - 10);
+
+            if (cs != null) cs.close();
+        }
+
+        // ───────────────────────────────────────────────────────────────────────
+        //  Wins histogram
+        //  Layout: clean row list, no background fills – just a thin border table
+        // ───────────────────────────────────────────────────────────────────────
+        private void drawWinsHistogram(Map<String, Integer> wins, int rounds) throws Exception {
+            float barX     = MARGIN + 210f;
+            float rightPad = 10f;
+            float barAreaW = Math.max(60f, (MARGIN + CW) - barX - rightPad);
+            float rowH     = 18f;
+            float headerH  = 18f;
+            int   rows     = wins.size();
+            // blockH includes header + all data rows + bottom padding
+            float blockH   = headerH + rows * rowH + 10f;
+
+            ensureSpace(blockH + 10);
+            // Reserve a small gap so the header doesn't touch whatever is above
+            y -= 4;
+            float top = y;
+
+            // outer border
+            strokeRect(MARGIN, top - blockH, CW, blockH, C_RULE, 0.5f);
+
+            // header row – positioned at the very top of the block
+            fillRect(MARGIN, top - headerH, CW, headerH, C_ACCENT);
+            float hTextY = top - headerH + headerH * 0.35f;
+            text("Игрок",       fBold, 8.5f, C_WHITE, MARGIN + 8,   hTextY);
+            text("Победы",      fBold, 8.5f, C_WHITE, MARGIN + 92,  hTextY);
+            text("Доля",        fBold, 8.5f, C_WHITE, MARGIN + 152, hTextY);
+            text("Гистограмма", fBold, 8.5f, C_WHITE, MARGIN + 210, hTextY);
+
+            int   max  = wins.values().stream().max(Integer::compareTo).orElse(1);
+            // yRow points to the TOP of the first data row (just below header bottom)
+            float yRow = top - headerH;
+            int   idx  = 0;
+
+            for (Map.Entry<String, Integer> e : wins.entrySet()) {
+                String name  = e.getKey();
+                int    value = e.getValue();
+                double pct   = rounds > 0 ? (double) value / rounds : 0;
+
+                // alternating row background
+                if (idx % 2 == 1) fillRect(MARGIN, yRow - rowH, CW, rowH, C_ROW_ALT);
+
+                // text baseline = row top - (rowH - font ascent) / 2, approx rowH*0.35 from bottom
+                float textY = yRow - rowH + rowH * 0.35f;
+                text(name,                              fRegular, 8.5f, C_TEXT,       MARGIN + 8,   textY);
+                text(String.valueOf(value),             fRegular, 8.5f, C_TEXT,       MARGIN + 92,  textY);
+                text(String.format("%.2f%%", pct*100), fRegular, 8.5f, C_TEXT_MUTED, MARGIN + 152, textY);
+
+                // bar vertically centered in the row
+                float barH = 6f;
+                float barY = yRow - rowH + (rowH - barH) / 2f;
+                float barW = max > 0 ? (value / (float) max) * barAreaW : 0;
+                fillRect(barX, barY, barAreaW, barH, C_RULE);
+                fillRect(barX, barY, barW,     barH, C_ACCENT_LT);
+
+                // row bottom separator
+                stroke(C_RULE);
+                cs.setLineWidth(0.3f);
+                cs.moveTo(MARGIN, yRow - rowH);
+                cs.lineTo(MARGIN + CW, yRow - rowH);
+                cs.stroke();
+
+                yRow -= rowH;
+                idx++;
             }
+
+            y = top - blockH - 10;
         }
 
-        private void newPage() throws Exception {
-            if (cs != null) {
-                cs.close();
-            }
-            page = new PDPage(PDRectangle.A4);
-            doc.addPage(page);
-            cs = new PDPageContentStream(doc, page);
-            fill(C_BG);
-            cs.addRect(0, 0, PW, PH);
-            cs.fill();
-            y = PH - MARGIN;
+        // ───────────────────────────────────────────────────────────────────────
+        //  Warning block
+        //  Design: left-border accent only, no background fill
+        // ───────────────────────────────────────────────────────────────────────
+        private void warningBlock(Map<String, Object> w) throws Exception {
+            boolean isErr   = "error".equals(w.get("level"));
+            Color   accent  = isErr ? C_ERR : C_WARN;
+
+            String levelLabel = isErr ? "[БЛОК]" : "[ПРЕДУПРЕЖДЕНИЕ]";
+            String code  = "[" + w.get("code") + "]";
+            String title = String.valueOf(w.get("title"));
+            String msg   = String.valueOf(w.get("message"));
+
+            int   msgLns = countLines(msg, CW - 24, 8.5f, fRegular);
+            float blockH = 10 + 13 + 14 + msgLns * 12f + 10;
+
+            ensureSpace(blockH + 8);
+            float top = y;
+
+            // very subtle background for readability
+            fillRect(MARGIN, top - blockH, CW, blockH, C_ROW_ALT);
+            // left accent bar (3px)
+            fillRect(MARGIN, top - blockH, 3f, blockH, accent);
+            // outer border
+            strokeRect(MARGIN, top - blockH, CW, blockH, C_RULE, 0.4f);
+
+            float tx = MARGIN + 12;
+            float ty = top - 12 - 8;
+
+            // Badge: colored label + code in muted text
+            text(levelLabel, fBold, 7.5f, accent, tx, ty);
+            float labelW = fBold.getStringWidth(ascii(levelLabel)) / 1000f * 7.5f;
+            text("  " + code, fRegular, 7.5f, C_TEXT_MUTED, tx + labelW, ty);
+            ty -= 14;
+
+            text(title, fBold, 9.5f, C_TEXT, tx, ty);
+            ty -= 14;
+
+            wrappedText(msg, fRegular, 8.5f, C_TEXT_MUTED, tx, ty, CW - 24, 12f);
+            y = top - blockH - 6;
         }
 
-        private void ensureSpace(float need) throws Exception {
-            if (y - need < MARGIN + 20) {
-                newPage();
-            }
-        }
-
-        private void fill(Color c) throws Exception {
-            cs.setNonStrokingColor(c);
-        }
-
-        private void stroke(Color c) throws Exception {
-            cs.setStrokingColor(c);
-        }
-
-        private void fillRect(float x, float rectY, float w, float h, Color c) throws Exception {
-            fill(c);
-            cs.addRect(x, rectY, w, h);
-            cs.fill();
-        }
-
-        private void text(String s, PDFont font, float size, Color color, float x, float baseY) throws Exception {
-            fill(color);
-            cs.beginText();
-            cs.setFont(font, size);
-            cs.newLineAtOffset(x, baseY);
-            cs.showText(ascii(s));
-            cs.endText();
-        }
-
-        private void textCentered(String s, PDFont font, float size, Color color, float baseY) throws Exception {
-            float w = font.getStringWidth(ascii(s)) / 1000f * size;
-            text(s, font, size, color, (PW - w) / 2f, baseY);
-        }
-
-        private void leftBar(float x, float rectY, float h, Color c) throws Exception {
-            fillRect(x, rectY, 3f, h, c);
-        }
-
+        // ───────────────────────────────────────────────────────────────────────
+        //  Section header  –  bold label + full-width rule
+        // ───────────────────────────────────────────────────────────────────────
         private void sectionHeader(String title) throws Exception {
-            ensureSpace(28);
-            y -= 12;
-            text(title, fBold, 13, C_TEXT, MARGIN, y);
-            y -= 5;
-            stroke(C_ACCENT);
-            cs.setLineWidth(0.8f);
-            cs.moveTo(MARGIN, y);
-            cs.lineTo(MARGIN + CW, y);
-            cs.stroke();
+            ensureSpace(30);
+            y -= 14;
+            text(title, fBold, 11f, C_TEXT, MARGIN, y);
+            y -= 6;
+            hRule(C_ACCENT, 1.0f);
             y -= 8;
         }
 
-        private void drawCard(float x, float topY, float w, String label, String value, Color bg) throws Exception {
-            float h = 50f;
-            fillRect(x, topY - h, w - 2, h, bg);
-            stroke(C_BORDER);
-            cs.addRect(x, topY - h, w - 2, h);
-            cs.stroke();
-            float vs = 20f;
+        // ───────────────────────────────────────────────────────────────────────
+        //  KPI cell  –  white bg, thin border, large number, small label
+        // ───────────────────────────────────────────────────────────────────────
+        private void kpiCell(float x, float topY, float w, String label, String value) throws Exception {
+            float h = 42f;
+            strokeRect(x, topY - h, w - 4, h, C_RULE, 0.5f);
+
+            float vs = 18f;
             float vw = fBold.getStringWidth(ascii(value)) / 1000f * vs;
-            text(value, fBold, vs, C_TEXT, x + (w - vw) / 2f - 1, topY - 22);
-            float ls = 8f;
+            text(value, fBold, vs, C_TEXT, x + (w - vw) / 2f - 2, topY - 18);
+
+            float ls = 7.5f;
             float lw = fRegular.getStringWidth(ascii(label)) / 1000f * ls;
-            text(label, fRegular, ls, C_TEXT_SOFT, x + (w - lw) / 2f - 1, topY - 38);
+            text(label, fRegular, ls, C_TEXT_MUTED, x + (w - lw) / 2f - 2, topY - 33);
         }
 
+        // ───────────────────────────────────────────────────────────────────────
+        //  Table  –  white body, accent header row, thin grid lines
+        // ───────────────────────────────────────────────────────────────────────
         private void drawTable(String[] headers, String[][] rows, float[] colW, int[] monoColumns) throws Exception {
             Set<Integer> mono = new HashSet<>();
-            for (int mc : monoColumns) {
-                mono.add(mc);
-            }
-            float rH = 18f;
-            float pad = 4f;
+            for (int mc : monoColumns) mono.add(mc);
 
+            float rH  = 17f;
+            float pad = 5f;
+
+            // ── Header row ──────────────────────────────────────────────────
             ensureSpace(rH + 4);
             fillRect(MARGIN, y - rH, CW, rH, C_ACCENT);
+
             float cx = MARGIN;
             for (int c = 0; c < headers.length; c++) {
-                text(headers[c], fBold, 8.5f, Color.WHITE, cx + pad, y - rH + pad + 2);
+                text(headers[c], fBold, 8f, C_WHITE, cx + pad, y - rH + pad + 1);
                 cx += colW[c];
+            }
+            // vertical column separators in header
+            cx = MARGIN + colW[0];
+            for (int c = 1; c < headers.length; c++) {
+                stroke(new Color(0x44, 0x66, 0x88));
+                cs.setLineWidth(0.4f);
+                cs.moveTo(cx, y - rH + 2);
+                cs.lineTo(cx, y - 2);
+                cs.stroke();
+                if (c < headers.length - 1) cx += colW[c];
             }
             y -= rH;
 
+            // ── Data rows ───────────────────────────────────────────────────
             for (int r = 0; r < rows.length; r++) {
                 ensureSpace(rH);
-                fillRect(MARGIN, y - rH, CW, rH, r % 2 == 0 ? C_CARD : C_CARD_ALT);
+
+                if (r % 2 == 1) fillRect(MARGIN, y - rH, CW, rH, C_ROW_ALT);
+
                 cx = MARGIN;
                 for (int c = 0; c < rows[r].length; c++) {
                     boolean isMono = mono.contains(c);
                     text(rows[r][c],
                             isMono ? fMono : fRegular,
-                            isMono ? 8f : 8.5f,
+                            isMono ? 7.5f : 8f,
                             C_TEXT,
-                            cx + pad, y - rH + pad + 2);
+                            cx + pad, y - rH + pad + 1);
                     cx += colW[c];
                 }
+
+                // bottom rule
+                stroke(C_RULE);
+                cs.setLineWidth(0.3f);
+                cs.moveTo(MARGIN, y - rH);
+                cs.lineTo(MARGIN + CW, y - rH);
+                cs.stroke();
+
                 y -= rH;
             }
-            y -= 6;
+
+            // outer border
+            stroke(C_RULE);
+            cs.setLineWidth(0.5f);
+            cs.addRect(MARGIN, y, CW, rH * (rows.length + 1));
+            cs.stroke();
+
+            y -= 8;
         }
 
+        // ───────────────────────────────────────────────────────────────────────
+        //  Wrap-aware table row: renders a single 3-column row where col[1]
+        //  (the value) may span multiple lines due to text wrapping.
+        //  Used for "players" and "boosted" rows with potentially long content.
+        // ───────────────────────────────────────────────────────────────────────
+        private void drawWrappedRow(String param, String value, String note, float[] colW) throws Exception {
+            float pad  = 5f;
+            float lineH = 12f;
+            float minH  = 17f;
+
+            List<String> valueLines = wrapLine(value, fRegular, 8f, colW[1] - pad * 2);
+            List<String> noteLines  = wrapLine(note,  fRegular, 8f, colW[2] - pad * 2);
+            int maxLines = Math.max(1, Math.max(valueLines.size(), noteLines.size()));
+            float rowH = Math.max(minH, pad * 2 + maxLines * lineH);
+
+            ensureSpace(rowH + 2);
+
+            // alternating fill – treat as an even row (white)
+            // outer bottom rule
+            stroke(C_RULE);
+            cs.setLineWidth(0.3f);
+            cs.moveTo(MARGIN, y - rowH);
+            cs.lineTo(MARGIN + colW[0] + colW[1] + colW[2], y - rowH);
+            cs.stroke();
+
+            // col 0 – param name (single line, vertically centered)
+            float textBaseY = y - pad - lineH + 3;
+            text(param, fRegular, 8f, C_TEXT, MARGIN + pad, textBaseY);
+
+            // col 1 – value (wrapped)
+            float cx1 = MARGIN + colW[0];
+            float ty1 = y - pad - lineH + 3;
+            for (String l : valueLines) {
+                text(l, fMono, 7.5f, C_TEXT, cx1 + pad, ty1);
+                ty1 -= lineH;
+            }
+
+            // col 2 – note (wrapped)
+            float cx2 = MARGIN + colW[0] + colW[1];
+            float ty2 = y - pad - lineH + 3;
+            for (String l : noteLines) {
+                text(l, fRegular, 8f, C_TEXT, cx2 + pad, ty2);
+                ty2 -= lineH;
+            }
+
+            y -= rowH;
+        }
+
+        // ───────────────────────────────────────────────────────────────────────
+        //  Formula block (text)
+        //  Design: white bg, 2px accent left bar, thin outer border
+        // ───────────────────────────────────────────────────────────────────────
         private void formulaBlock(String title, String[] formulaLines, String explanation) throws Exception {
-            float lineH = 13f;
-            float pad = 7f;
-            int expLns = countLines(explanation, CW - 22, 8.5f, fRegular);
-            float blockH = pad + lineH + formulaLines.length * lineH + expLns * 11f + pad + 2;
+            float lineH  = 13f;
+            float pad    = 8f;
+            int   expLns = countLines(explanation, CW - 26, 8.5f, fRegular);
+            float blockH = pad + lineH + formulaLines.length * lineH + expLns * 12f + pad;
 
-            ensureSpace(blockH + 6);
+            ensureSpace(blockH + 8);
             float top = y;
-            fillRect(MARGIN, top - blockH, CW, blockH, C_CARD);
-            leftBar(MARGIN, top - blockH, blockH, C_ACCENT);
 
-            float tx = MARGIN + 10;
+            // border + left accent
+            strokeRect(MARGIN, top - blockH, CW, blockH, C_RULE, 0.5f);
+            fillRect(MARGIN, top - blockH, 2.5f, blockH, C_ACCENT);
+
+            float tx = MARGIN + 12;
             float ty = top - pad - lineH + 3;
-            text(title, fBold, 10, C_TEXT, tx, ty);
-            ty -= lineH;
+
+            text(title, fBold, 9.5f, C_TEXT, tx, ty);
+            ty -= lineH + 1;
+
             for (String line : formulaLines) {
-                text(line, fMono, 8, C_TEXT, tx, ty);
+                text(line, fMono, 7.5f, C_ACCENT, tx, ty);
                 ty -= lineH;
             }
-            ty -= 2;
-            wrappedText(explanation, fRegular, 8.5f, C_TEXT_SOFT, tx, ty, CW - 22, 11f);
-            y = top - blockH - 5;
+            ty -= 3;
+            wrappedText(explanation, fRegular, 8.5f, C_TEXT_MUTED, tx, ty, CW - 26, 12f);
+            y = top - blockH - 6;
         }
 
+        // ───────────────────────────────────────────────────────────────────────
+        //  Formula block (LaTeX rendered)
+        // ───────────────────────────────────────────────────────────────────────
         private void formulaBlockLatex(String title, String[] latexLines, String explanation) throws Exception {
             float lineH = 13f;
-            float pad = 7f;
-            int expLns = countLines(explanation, CW - 22, 8.5f, fRegular);
+            float pad   = 8f;
+            int expLns  = countLines(explanation, CW - 26, 8.5f, fRegular);
             float latexTotalH = 0f;
             for (String latex : latexLines) {
-                latexTotalH += estimateLatexFormulaHeight(latex, CW - 22) + 6f;
+                latexTotalH += estimateLatexFormulaHeight(latex, CW - 26) + 6f;
             }
-            float blockH = pad + lineH + latexTotalH + expLns * 11f + pad + 6;
+            float blockH = pad + lineH + latexTotalH + expLns * 12f + pad;
 
-            ensureSpace(blockH + 6);
+            ensureSpace(blockH + 8);
             float top = y;
-            fillRect(MARGIN, top - blockH, CW, blockH, C_CARD);
-            leftBar(MARGIN, top - blockH, blockH, C_ACCENT);
 
-            float tx = MARGIN + 10;
+            strokeRect(MARGIN, top - blockH, CW, blockH, C_RULE, 0.5f);
+            fillRect(MARGIN, top - blockH, 2.5f, blockH, C_ACCENT);
+
+            float tx = MARGIN + 12;
             float ty = top - pad - lineH + 3;
-            text(title, fBold, 10, C_TEXT, tx, ty);
+
+            text(title, fBold, 9.5f, C_TEXT, tx, ty);
             ty -= lineH + 1;
 
             for (String latex : latexLines) {
-                float usedH = drawLatexFormula(latex, tx, ty + 2, CW - 22);
+                float usedH = drawLatexFormula(latex, tx, ty + 2, CW - 26);
                 ty -= usedH + 6;
             }
 
-            wrappedText(explanation, fRegular, 8.5f, C_TEXT_SOFT, tx, ty, CW - 22, 11f);
-            y = top - blockH - 5;
+            wrappedText(explanation, fRegular, 8.5f, C_TEXT_MUTED, tx, ty, CW - 26, 12f);
+            y = top - blockH - 6;
         }
 
         private float drawLatexFormula(String latex, float x, float topY, float maxW) throws Exception {
@@ -481,11 +679,11 @@ public class LotteryReportService {
 
                 int srcW = Math.max(1, icon.getIconWidth());
                 int srcH = Math.max(1, icon.getIconHeight());
-                float fitScale = srcW > maxW ? (maxW / srcW) : 1f;
-                int targetW = Math.max(1, Math.round(srcW * fitScale));
-                int targetH = Math.max(1, Math.round(srcH * fitScale));
+                float fitScale  = srcW > maxW ? (maxW / srcW) : 1f;
+                int   targetW   = Math.max(1, Math.round(srcW * fitScale));
+                int   targetH   = Math.max(1, Math.round(srcH * fitScale));
 
-                int ss = 3;
+                int ss      = 3;
                 int renderW = Math.max(1, targetW * ss);
                 int renderH = Math.max(1, targetH * ss);
                 BufferedImage img = new BufferedImage(renderW, renderH, BufferedImage.TYPE_INT_ARGB);
@@ -493,9 +691,9 @@ public class LotteryReportService {
                 g2.setColor(new Color(0, 0, 0, 0));
                 g2.fillRect(0, 0, renderW, renderH);
                 g2.setColor(C_TEXT);
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,     RenderingHints.VALUE_ANTIALIAS_ON);
                 g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,     RenderingHints.VALUE_INTERPOLATION_BICUBIC);
                 g2.scale(fitScale * ss, fitScale * ss);
                 icon.paintIcon(null, g2, 0, 0);
                 g2.dispose();
@@ -522,75 +720,69 @@ public class LotteryReportService {
             }
         }
 
-        private void drawWinsHistogram(Map<String, Integer> wins, int rounds) throws Exception {
-            float barX = MARGIN + 210f;
-            float rightPad = 10f;
-            float barAreaW = Math.max(60f, (MARGIN + CW) - barX - rightPad);
-            float rowH = 18f;
-            float headerH = 18f;
-            int rows = wins.size();
-            float blockH = headerH + rows * rowH + 20f;
-            ensureSpace(blockH + 8);
+        // ───────────────────────────────────────────────────────────────────────
+        //  Primitives
+        // ───────────────────────────────────────────────────────────────────────
 
-            float top = y;
-            fillRect(MARGIN, top - blockH, CW, blockH, C_CARD);
-            stroke(C_BORDER);
-            cs.addRect(MARGIN, top - blockH, CW, blockH);
-            cs.stroke();
-
-            text("Игрок", fBold, 9, C_TEXT, MARGIN + 8, top - 13);
-            text("Победы", fBold, 9, C_TEXT, MARGIN + 92, top - 13);
-            text("Доля", fBold, 9, C_TEXT, MARGIN + 152, top - 13);
-            text("Гистограмма", fBold, 9, C_TEXT, MARGIN + 210, top - 13);
-
-            int max = wins.values().stream().max(Integer::compareTo).orElse(1);
-            float yRow = top - headerH - 10;
-
-            for (Map.Entry<String, Integer> e : wins.entrySet()) {
-                String name = e.getKey();
-                int value = e.getValue();
-                double pct = rounds > 0 ? (double) value / rounds : 0;
-
-                text(name, fRegular, 8.5f, C_TEXT, MARGIN + 8, yRow);
-                text(String.valueOf(value), fRegular, 8.5f, C_TEXT, MARGIN + 92, yRow);
-                text(String.format("%.2f%%", pct * 100), fRegular, 8.5f, C_TEXT, MARGIN + 152, yRow);
-
-                float barY = yRow - 7;
-                float w = max > 0 ? (value / (float) max) * barAreaW : 0;
-                fillRect(barX, barY, barAreaW, 8, C_CARD_ALT);
-                fillRect(barX, barY, w, 8, C_CHART);
-
-                yRow -= rowH;
-            }
-
-            y = top - blockH - 8;
+        private void newPage() throws Exception {
+            if (cs != null) cs.close();
+            page = new PDPage(PDRectangle.A4);
+            doc.addPage(page);
+            cs = new PDPageContentStream(doc, page);
+            // pure white background
+            cs.setNonStrokingColor(C_WHITE);
+            cs.addRect(0, 0, PW, PH);
+            cs.fill();
+            y = PH - MARGIN;
         }
 
-        private void warningBlock(Map<String, Object> w) throws Exception {
-            boolean isErr = "error".equals(w.get("level"));
-            Color border = isErr ? C_ERR : C_WARN;
+        private void ensureSpace(float need) throws Exception {
+            if (y - need < MARGIN + 20) newPage();
+        }
 
-            String levelLabel = isErr ? "[БЛОК]" : "[ПРЕДУПРЕЖДЕНИЕ]";
-            String code = "[" + String.valueOf(w.get("code")) + "]";
-            String title = String.valueOf(w.get("title"));
-            String message = String.valueOf(w.get("message"));
+        private void fill(Color c) throws Exception {
+            cs.setNonStrokingColor(c);
+        }
 
-            int msgLns = countLines(message, CW - 22, 8.5f, fRegular);
-            float blockH = 8 + 12 + 14 + msgLns * 11f + 8;
+        private void stroke(Color c) throws Exception {
+            cs.setStrokingColor(c);
+        }
 
-            ensureSpace(blockH + 6);
-            float top = y;
-            fillRect(MARGIN, top - blockH, CW, blockH, C_CARD);
-            leftBar(MARGIN, top - blockH, blockH, border);
+        private void fillRect(float x, float rectY, float w, float h, Color c) throws Exception {
+            fill(c);
+            cs.addRect(x, rectY, w, h);
+            cs.fill();
+        }
 
-            float tx = MARGIN + 10;
-            float ty = top - 10 - 9;
-            text(levelLabel + "  " + code, fBold, 8, C_TEXT, tx, ty);
-            ty -= 13;
-            text(title, fBold, 10, C_TEXT, tx, ty);
-            ty -= 13;
-            wrappedText(message, fRegular, 8.5f, C_TEXT_SOFT, tx, ty, CW - 22, 11f);
-            y = top - blockH - 5;
+        /** Stroke-only rectangle (no fill). */
+        private void strokeRect(float x, float rectY, float w, float h, Color c, float lineW) throws Exception {
+            stroke(c);
+            cs.setLineWidth(lineW);
+            cs.addRect(x, rectY, w, h);
+            cs.stroke();
+        }
+
+        /** Full-width horizontal rule at current y. */
+        private void hRule(Color c, float lineW) throws Exception {
+            stroke(c);
+            cs.setLineWidth(lineW);
+            cs.moveTo(MARGIN, y);
+            cs.lineTo(MARGIN + CW, y);
+            cs.stroke();
+        }
+
+        private void text(String s, PDFont font, float size, Color color, float x, float baseY) throws Exception {
+            fill(color);
+            cs.beginText();
+            cs.setFont(font, size);
+            cs.newLineAtOffset(x, baseY);
+            cs.showText(ascii(s));
+            cs.endText();
+        }
+
+        private void textCentered(String s, PDFont font, float size, Color color, float baseY) throws Exception {
+            float w = font.getStringWidth(ascii(s)) / 1000f * size;
+            text(s, font, size, color, (PW - w) / 2f, baseY);
         }
 
         private float wrappedText(String text, PDFont font, float size, Color color,
@@ -617,24 +809,22 @@ public class LotteryReportService {
                     cur = new StringBuilder(test);
                 }
             }
-            if (cur.length() > 0) {
-                res.add(cur.toString());
-            }
+            if (cur.length() > 0) res.add(cur.toString());
             return res.isEmpty() ? Collections.singletonList("") : res;
         }
 
         private int countLines(String text, float maxW, float size, PDFont font) {
             int total = 0;
             for (String para : text.split("\\n")) {
-                try {
-                    total += wrapLine(para, font, size, maxW).size();
-                } catch (Exception e) {
-                    total += 1;
-                }
+                try   { total += wrapLine(para, font, size, maxW).size(); }
+                catch (Exception e) { total += 1; }
             }
             return Math.max(total, 1);
         }
 
+        // ───────────────────────────────────────────────────────────────────────
+        //  Font loading
+        // ───────────────────────────────────────────────────────────────────────
         private static PDFont loadUnicodeFont(PDDocument doc, boolean bold) throws Exception {
             String[] candidates = bold
                     ? new String[]{
@@ -651,13 +841,13 @@ public class LotteryReportService {
                     "/System/Library/Fonts/Supplemental/Arial.ttf",
                     "/System/Library/Fonts/Supplemental/Helvetica.ttc"
             };
+
             for (String p : candidates) {
                 Path path = Paths.get(p);
                 if (Files.exists(path)) {
                     try (InputStream is = Files.newInputStream(path)) {
                         return PDType0Font.load(doc, is, true);
-                    } catch (Exception ignored) {
-                    }
+                    } catch (Exception ignored) {}
                 }
             }
             return bold
@@ -665,13 +855,11 @@ public class LotteryReportService {
                     : new PDType1Font(Standard14Fonts.FontName.HELVETICA);
         }
 
-        private static String ascii(String s) {
-            return s == null ? "" : s;
-        }
-
-        private static String fmt(double v) {
-            return String.format("%.2f", v);
-        }
+        // ───────────────────────────────────────────────────────────────────────
+        //  Utilities
+        // ───────────────────────────────────────────────────────────────────────
+        private static String ascii(String s) { return s == null ? "" : s; }
+        private static String fmt(double v)   { return String.format("%.2f", v); }
 
         private static String fmtVal(Map<String, Object> m, String key) {
             Object v = m.get(key);
@@ -684,26 +872,18 @@ public class LotteryReportService {
         }
 
         private static double[] toDoubleArr(Object o) {
-            if (o instanceof double[] arr) {
-                return arr;
-            }
+            if (o instanceof double[] arr) return arr;
             if (o instanceof List<?> l) {
                 double[] a = new double[l.size()];
-                for (int i = 0; i < l.size(); i++) {
-                    a[i] = ((Number) l.get(i)).doubleValue();
-                }
+                for (int i = 0; i < l.size(); i++) a[i] = ((Number) l.get(i)).doubleValue();
                 return a;
             }
             return new double[0];
         }
 
         private static String[] toStringArr(Object o) {
-            if (o instanceof String[] arr) {
-                return arr;
-            }
-            if (o instanceof List<?> l) {
-                return l.stream().map(Object::toString).toArray(String[]::new);
-            }
+            if (o instanceof String[] arr) return arr;
+            if (o instanceof List<?> l) return l.stream().map(Object::toString).toArray(String[]::new);
             return new String[0];
         }
     }
