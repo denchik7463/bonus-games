@@ -35,6 +35,11 @@
     .FULL { background: #9333ea; }
     .FINISHED { background: #16a34a; }
     .CANCELLED { background: #b91c1c; }
+    .seats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; }
+    .seat { border: 1px solid #273449; border-radius: 10px; padding: 8px; background: #0b1220; font-size: 12px; min-height: 62px; }
+    .seat.free { border-color: #1f7a46; color: #86efac; }
+    .seat.occupied { border-color: #b45309; color: #fdba74; }
+    .seat-num { font-weight: 700; display: block; margin-bottom: 4px; }
     pre { background: #0b1220; border: 1px solid #263247; border-radius: 10px; padding: 12px; overflow: auto; max-height: 320px; }
   </style>
 </head>
@@ -83,6 +88,11 @@
       </thead>
       <tbody id="playersBody"></tbody>
     </table>
+  </div>
+
+  <div class="panel">
+    <h2>Occupied Seats (Realtime)</h2>
+    <div id="seatsBox" class="seats-grid"></div>
   </div>
 
   <div class="panel">
@@ -147,6 +157,29 @@
       `;
       tbody.appendChild(tr);
     });
+    renderSeats(state);
+  }
+
+  function renderSeats(state) {
+    const box = document.getElementById('seatsBox');
+    box.innerHTML = '';
+    const maxPlayers = Number(state.maxPlayers || 0);
+    const occupied = new Map();
+    (state.players || []).forEach(p => {
+      if (p.playerOrder != null) {
+        occupied.set(Number(p.playerOrder), p.username || 'unknown');
+      }
+    });
+    for (let seat = 1; seat <= maxPlayers; seat++) {
+      const owner = occupied.get(seat);
+      const el = document.createElement('div');
+      el.className = `seat ${owner ? 'occupied' : 'free'}`;
+      el.innerHTML = `
+        <span class="seat-num">#${seat}</span>
+        <span>${owner ? `occupied: ${owner}` : 'free'}</span>
+      `;
+      box.appendChild(el);
+    }
   }
 
   function formatCountdown(state) {

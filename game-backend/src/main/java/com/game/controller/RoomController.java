@@ -1,6 +1,7 @@
 package com.game.controller;
 
 import com.game.model.dto.CreateRoomRequest;
+import com.game.model.dto.BoostActivateRequest;
 import com.game.model.dto.FinishRoomRequest;
 import com.game.model.dto.FinishRoomResponse;
 import com.game.model.dto.BoostActivationResponse;
@@ -64,17 +65,18 @@ public class RoomController {
     }
 
     @PostMapping("/{roomId}/join")
-    public JoinRoomResponse joinRoom(@PathVariable UUID roomId, @RequestBody(required = false) JoinRoomRequest request) {
+    public JoinRoomResponse joinRoom(@PathVariable UUID roomId, @Valid @RequestBody JoinRoomRequest request) {
         RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
         User user = UserContext.getRequired();
         return roomService.joinRoom(roomId, user, request);
     }
 
     @PostMapping("/{roomId}/boost/activate")
-    public BoostActivationResponse activateBoost(@PathVariable UUID roomId) {
+    public BoostActivationResponse activateBoost(@PathVariable UUID roomId,
+                                                 @Valid @RequestBody BoostActivateRequest request) {
         RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
         User user = UserContext.getRequired();
-        return roomService.activateBoost(roomId, user);
+        return roomService.activateBoost(roomId, user, request.getSeatNumber());
     }
 
     @PostMapping("/{roomId}/finish")

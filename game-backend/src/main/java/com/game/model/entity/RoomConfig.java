@@ -50,6 +50,9 @@ public class RoomConfig {
     @Column(name = "max_players", nullable = false)
     private Integer maxPlayers;
 
+    @Column(name = "winner_percent", nullable = false)
+    private Integer winnerPercent;
+
     @Column(name = "game_mechanic", nullable = false, length = 100)
     private String gameMechanic;
 

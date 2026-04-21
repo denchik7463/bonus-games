@@ -4,7 +4,7 @@
 
 Комната живет фиксированное время: **60 секунд**.
 
-- Таймер запускается от `createdAt` (момент создания комнаты).
+- Таймер запускается от `firstPlayerJoinedAt` (момент входа первого игрока).
 - По истечении таймера:
   - если комната в статусе `FULL` (заполнена) -> выполняется розыгрыш победителя (`finish`);
   - если не заполнена -> комната отменяется (`cancel`), резервы игроков освобождаются.
@@ -27,12 +27,13 @@
 
 При завершении комнаты (`FINISHED`):
 
-1. Для каждого игрока резервация коммитится (`COMMITTED`).
-2. Победителю начисляется `prizeFund` транзакцией `WIN`.
+1. Для каждого игрока резервация entry-cost коммитится (`COMMITTED`).
+2. Для активированных бустов резервации буста также коммитятся (`COMMITTED`).
+3. Победителю начисляется выплата `winnerPayout = totalPool * winnerPercent / 100` транзакцией `WIN`.
 
 При отмене комнаты (`CANCELLED`):
 
-1. Резервации игроков релизятся (`RELEASED`).
+1. Резервации entry-cost и бустов релизятся (`RELEASED`).
 2. Средства возвращаются в `available`.
 
 ## API по комнатам
@@ -66,11 +67,27 @@
 
 ```json
 {
-  "boostUsed": false
+  "seats": [1]
+}
+```
+
+или:
+
+```json
+{
+  "seatsCount": 2
 }
 ```
 
 Важно: вход в комнату запрещен, если до ее таймаута осталось `<= 5` секунд.
+Дополнительно:
+
+- место должно быть в диапазоне `1..maxPlayers`;
+- нельзя выбрать уже занятое место;
+- в одном запросе места должны быть уникальными;
+- один игрок может занимать максимум `50%` мест комнаты.
+- в запросе нужно передать **либо** `seats`, **либо** `seatsCount`.
+- если передан `seatsCount`, backend случайно выбирает нужное количество свободных мест.
 
 ### Войти по шаблону (автоподбор комнаты)
 
@@ -92,7 +109,19 @@
 {
   "maxPlayers": 2,
   "entryCost": 100,
-  "boostAllowed": true
+  "boostAllowed": true,
+  "seats": [1]
+}
+```
+
+или:
+
+```json
+{
+  "maxPlayers": 2,
+  "entryCost": 100,
+  "boostAllowed": true,
+  "seatsCount": 1
 }
 ```
 
@@ -100,7 +129,8 @@
 
 - этот API только возвращает `roomId` (подбор/создание комнаты), но не выполняет `join`;
 - после этого игрок должен отдельно вызвать `POST /api/rooms/{roomId}/join`;
-- `boostUsed` в этом API не передается.
+- в этом API передаются желаемые места `seats`; backend ищет комнату, где все эти места свободны.
+- альтернативно можно передать `seatsCount`; backend ищет комнату, где есть минимум `N` свободных мест.
 - `templateId` можно передавать как опциональный параметр для жесткой привязки к конкретному шаблону.
 
 ### Активировать буст в комнате
@@ -109,19 +139,29 @@
 
 Роль: `USER`, `EXPERT`, `ADMIN`
 
+Пример body:
+
+```json
+{
+  "seatNumber": 1
+}
+```
+
 Условия:
 
-1. Пользователь уже находится в комнате.
+1. Пользователь владеет указанным местом `seatNumber` в комнате.
 2. Комната не `FINISHED` и не `CANCELLED`.
 3. Для шаблона комнаты `bonusEnabled=true`.
 4. У пользователя достаточно `available` баланса на `bonusPrice`.
 
-При успешной активации:
+При успешной активации (для конкретного места):
 
-- у игрока ставится `boostUsed=true`;
-- с баланса списывается `bonusPrice`;
+- у выбранного места игрока ставится `boostUsed=true`;
+- создается резервация `bonusPrice` за это место (`RESERVED`);
+- при `FINISHED` эта резервация коммитится, при `CANCELLED` — релизится;
+- в ответе возвращается `boostReservationId`;
 - пишется событие `BOOST_ACTIVATED` в `round_event_logs`;
-- в `wallet_transactions` добавляется `BOOST_PURCHASE`.
+- в `wallet_transactions` пишутся операции резервации/финализации.
 
 ### Получить состояние комнаты
 
@@ -234,6 +274,7 @@ TEMPLATE_ID=$(curl -s -X POST "http://localhost:8081/api/room-templates" \
     "bonusPrice": 50,
     "bonusWeight": 10,
     "maxPlayers": 2,
+    "winnerPercent": 80,
     "gameMechanic": "WEIGHTED_RANDOM"
   }' | jq -r '.id')
 
@@ -259,7 +300,9 @@ echo "$ROOM_ID"
 curl -X POST "http://localhost:8081/api/rooms/$ROOM_ID/join" \
   -H "Authorization: Bearer $USER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{
+    "seats": [1]
+  }'
 ```
 
 ### 6) Найти/создать комнату по параметрам (без присоединения)
@@ -271,7 +314,8 @@ curl -X POST "http://localhost:8081/api/room/find" \
   -d "{
     \"maxPlayers\": 2,
     \"entryCost\": 100,
-    \"boostAllowed\": true
+    \"boostAllowed\": true,
+    \"seats\": [1]
   }"
 ```
 
@@ -282,7 +326,8 @@ curl -X POST "http://localhost:8081/api/room/find" \
   "templateId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
   "maxPlayers": 2,
   "entryCost": 100,
-  "boostAllowed": true
+  "boostAllowed": true,
+  "seats": [1]
 }
 ```
 
@@ -292,7 +337,9 @@ curl -X POST "http://localhost:8081/api/room/find" \
 curl -X POST "http://localhost:8081/api/rooms/$ROOM_ID/join" \
   -H "Authorization: Bearer $USER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{
+    "seats": [2]
+  }'
 ```
 
 ### 7) Активировать буст после входа в комнату
@@ -301,7 +348,9 @@ curl -X POST "http://localhost:8081/api/rooms/$ROOM_ID/join" \
 curl -X POST "http://localhost:8081/api/rooms/$ROOM_ID/boost/activate" \
   -H "Authorization: Bearer $USER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{
+    "seatNumber": 1
+  }'
 ```
 
 ## Realtime (WebSocket) и таймер
@@ -322,7 +371,7 @@ curl -X POST "http://localhost:8081/api/rooms/$ROOM_ID/boost/activate" \
 ws://localhost:8081/ws/rooms?roomId=<ROOM_ID>&token=<TOKEN>
 ```
 
-`rooms-realtime.html` использует только WebSocket для realtime-обновлений.
+`rooms-realtime.html` использует только WebSocket для realtime-обновлений и показывает занятые/свободные места в блоке `Occupied Seats`.
 
 ### Как работать с WebSocket (практика)
 
@@ -454,7 +503,7 @@ ws.onmessage = (event) => {
 ### Как работает таймер комнаты
 
 - Таймер комнаты фиксированный: `60` секунд.
-- Отсчет начинается от `createdAt` (момент создания комнаты).
+- Отсчет начинается от `firstPlayerJoinedAt` (момент входа первого игрока).
 - Scheduler проверяет комнаты в статусах `WAITING` и `FULL`.
 - По истечении таймера:
   - если статус `FULL` -> выполняется розыгрыш победителя (`FINISHED`);
