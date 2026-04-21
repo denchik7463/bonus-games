@@ -25,6 +25,7 @@ import com.game.repository.GameResultRepository;
 import com.game.repository.RoomConfigRepository;
 import com.game.repository.RoomPlayerRepository;
 import com.game.repository.RoomRepository;
+import com.game.realtime.RoomEventPublisher;
 import com.game.service.game.RoundEventLogService;
 import com.game.service.game.WinnerService;
 import com.game.service.wallet.WalletService;
@@ -36,16 +37,21 @@ import org.springframework.data.domain.PageRequest;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 @RequiredArgsConstructor
 public class RoomService {
 
     private static final int ROOM_TIMER_SECONDS = 60;
+    private static final long MIN_TIME_LEFT_TO_JOIN_MS = 5_000L;
     private static final String STATUS_WAITING = "WAITING";
     private static final String STATUS_FULL = "FULL";
     private static final String STATUS_FINISHED = "FINISHED";
@@ -55,6 +61,7 @@ public class RoomService {
     private final RoomPlayerRepository roomPlayerRepository;
     private final RoomConfigRepository roomConfigRepository;
     private final GameResultRepository gameResultRepository;
+    private final RoomEventPublisher roomEventPublisher;
     private final WalletService walletService;
     private final WinnerService winnerService;
     private final RoundEventLogService roundEventLogService;
@@ -74,22 +81,46 @@ public class RoomService {
                         + ",\"timerSeconds\":" + saved.getTimerSeconds() + "}"
         );
 
+        publishRoomRealtime(saved.getId());
+
         return toResponse(saved);
     }
 
     @Transactional
-    public JoinRoomResponse joinByTemplate(JoinByTemplateRequest request, User user) {
-        UUID templateId = request.getTemplateId();
-        Room room = roomRepository.findJoinableWaitingRoomsByTemplateIdForUpdate(templateId, PageRequest.of(0, 1))
+    public RoomResponse joinByTemplate(JoinByTemplateRequest request) {
+        RoomConfig template = resolveTemplateForMatching(request);
+        RequestedSeatSelection selection = resolveRequestedSeatSelection(
+                request.getSeats(),
+                request.getSeatsCount(),
+                template.getMaxPlayers()
+        );
+        UUID templateId = template.getId();
+        Room room = roomRepository.findJoinableWaitingRoomsByTemplateIdForUpdate(templateId, PageRequest.of(0, 50))
                 .stream()
+                .filter(this::hasMoreThanFiveSecondsLeft)
+                .filter(candidate -> hasEnoughFreeSeats(candidate.getId(), selection))
                 .findFirst()
-                .orElseGet(() -> roomRepository.save(newRoomFromTemplate(templateId)));
-
-        return joinRoom(room.getId(), user, null);
+                .orElseGet(() -> {
+                    Room created = roomRepository.save(newRoomFromTemplate(templateId));
+                    roundEventLogService.logSystemEvent(
+                            created.getId(),
+                            null,
+                            "ROOM_CREATED",
+                            "Комната создана",
+                            "Создана новая игровая комната.",
+                            "{\"maxPlayers\":" + created.getMaxPlayers()
+                                    + ",\"entryCost\":" + created.getEntryCost()
+                                    + ",\"boostAllowed\":" + created.getBoostAllowed()
+                                    + ",\"timerSeconds\":" + created.getTimerSeconds() + "}"
+                    );
+                    publishRoomRealtime(created.getId());
+                    return created;
+                });
+        return toResponse(room);
     }
 
     @Transactional
-    public BoostActivationResponse activateBoost(UUID roomId, User user) {
+    public BoostActivationResponse activateBoost(UUID roomId, User user, Integer seatNumber) {
         Room room = findRoom(roomId);
         if (STATUS_FINISHED.equals(room.getStatus()) || STATUS_CANCELLED.equals(room.getStatus())) {
             throw new IllegalArgumentException("Room is already closed");
@@ -100,14 +131,21 @@ public class RoomService {
         if (room.getTemplateId() == null) {
             throw new IllegalArgumentException("Room template is not linked");
         }
+        if (seatNumber == null || seatNumber < 1) {
+            throw new IllegalArgumentException("seatNumber must be >= 1");
+        }
 
-        RoomPlayer roomPlayer = roomPlayerRepository.findByRoomIdAndUserIdForUpdate(roomId, user.getId())
-                .orElseThrow(() -> new NotFoundException("User is not in this room"));
-        if (Boolean.TRUE.equals(roomPlayer.getBoostUsed())) {
+        RoomPlayer userSeat = roomPlayerRepository
+                .findByRoomIdAndUserIdAndPlayerOrderForUpdate(roomId, user.getId(), seatNumber)
+                .orElseThrow(() -> new NotFoundException("User does not own seat " + seatNumber + " in this room"));
+
+        if (Boolean.TRUE.equals(userSeat.getBoostUsed())) {
             return BoostActivationResponse.builder()
                     .roomId(roomId)
                     .userId(user.getId())
                     .username(user.getUsername())
+                    .seatNumber(seatNumber)
+                    .boostReservationId(userSeat.getBoostReservationId())
                     .boostUsed(true)
                     .boostPrice(0)
                     .boostWeight(0)
@@ -124,36 +162,46 @@ public class RoomService {
             throw new IllegalArgumentException("Bonus price must be > 0");
         }
 
-        BalanceResponse balance = walletService.chargeBoost(
-                user.getId(),
+        String boostReserveOperationId = "room-boost-reserve:" + roomId + ":" + user.getId() + ":seat-" + seatNumber;
+        ReservationResponse boostReservation = walletService.reserveForRoomJoin(
+                user,
+                room.getId().toString(),
+                userSeat.getRoundId(),
                 template.getBonusPrice(),
-                "room-boost:" + roomId + ":" + user.getId(),
-                "Boost activation in room " + roomId
+                OffsetDateTime.now().plusMinutes(15),
+                boostReserveOperationId
         );
 
-        roomPlayer.setBoostUsed(true);
-        roomPlayerRepository.save(roomPlayer);
+        userSeat.setBoostUsed(true);
+        userSeat.setBoostReservationId(boostReservation.getReservationId());
+        roomPlayerRepository.save(userSeat);
 
         roundEventLogService.logSystemEvent(
                 room.getId(),
                 null,
                 "BOOST_ACTIVATED",
-                "Буст активирован",
-                "Игрок активировал буст в комнате.",
+                "Буст активирован для места",
+                "Игрок активировал буст для конкретного места в комнате (резервация создана).",
                 "{\"userId\":\"" + user.getId()
                         + "\",\"username\":\"" + escapeJson(user.getUsername())
-                        + "\",\"boostPrice\":" + template.getBonusPrice()
+                        + "\",\"seatNumber\":" + seatNumber
+                        + ",\"boostReservationId\":\"" + boostReservation.getReservationId() + "\""
+                        + ",\"boostPrice\":" + template.getBonusPrice()
                         + ",\"boostWeight\":" + template.getBonusWeight() + "}"
         );
+
+        publishRoomRealtime(room.getId());
 
         return BoostActivationResponse.builder()
                 .roomId(room.getId())
                 .userId(user.getId())
                 .username(user.getUsername())
+                .seatNumber(seatNumber)
+                .boostReservationId(boostReservation.getReservationId())
                 .boostUsed(true)
                 .boostPrice(template.getBonusPrice())
                 .boostWeight(template.getBonusWeight())
-                .balance(balance)
+                .balance(boostReservation.getBalance())
                 .build();
     }
 
@@ -188,6 +236,7 @@ public class RoomService {
                 .entryCost(room.getEntryCost())
                 .prizeFund(room.getPrizeFund())
                 .timerSeconds(room.getTimerSeconds())
+                .remainingSeconds(remainingSeconds(room))
                 .createdAt(room.getCreatedAt())
                 .firstPlayerJoinedAt(room.getFirstPlayerJoinedAt())
                 .startedAt(room.getStartedAt())
@@ -199,20 +248,40 @@ public class RoomService {
     @Transactional
     public JoinRoomResponse joinRoom(UUID roomId, User user, JoinRoomRequest request) {
         Room room = findRoom(roomId);
+        if (request == null) {
+            throw new IllegalArgumentException("Join request is required");
+        }
+        RequestedSeatSelection selection = resolveRequestedSeatSelection(
+                request.getSeats(),
+                request.getSeatsCount(),
+                room.getMaxPlayers()
+        );
+        List<Integer> requestedSeats = resolveSeatsForJoin(room.getId(), selection);
 
         if (STATUS_FINISHED.equals(room.getStatus()) || STATUS_CANCELLED.equals(room.getStatus())) {
             throw new IllegalArgumentException("Room is already closed");
         }
-        if (room.getCurrentPlayers() >= room.getMaxPlayers()) {
-            throw new IllegalStateException("Room is full");
+        if (!hasMoreThanFiveSecondsLeft(room)) {
+            throw new IllegalArgumentException("Cannot join room: less than 5 seconds left before timeout");
         }
-        if (roomPlayerRepository.existsByRoom_IdAndUserId(roomId, user.getId())) {
-            throw new IllegalArgumentException("User already joined this room");
+        if (room.getCurrentPlayers() + requestedSeats.size() > room.getMaxPlayers()) {
+            throw new IllegalStateException("Room does not have enough seats");
         }
-
-        boolean boostUsed = request != null && Boolean.TRUE.equals(request.getBoostUsed());
-        if (boostUsed && !Boolean.TRUE.equals(room.getBoostAllowed())) {
-            throw new IllegalArgumentException("Boost is not allowed in this room");
+        long alreadyOwnedSeats = roomPlayerRepository.countByRoom_IdAndUserId(roomId, user.getId());
+        long maxSeatsForUser = maxSeatsPerUser(room.getMaxPlayers());
+        if (alreadyOwnedSeats + requestedSeats.size() > maxSeatsForUser) {
+            throw new IllegalArgumentException("User cannot buy more than 50% of seats in this room");
+        }
+        Set<Integer> occupiedSeatsSet = findOccupiedSeats(roomId);
+        List<Integer> occupiedRequestedSeats = requestedSeats.stream()
+                .filter(occupiedSeatsSet::contains)
+                .sorted()
+                .toList();
+        if (!occupiedRequestedSeats.isEmpty()) {
+            String occupiedSeats = occupiedRequestedSeats.stream()
+                    .map(String::valueOf)
+                    .collect(java.util.stream.Collectors.joining(","));
+            throw new IllegalArgumentException("Seat(s) already occupied: " + occupiedSeats);
         }
 
         boolean firstPlayer = room.getCurrentPlayers() == 0;
@@ -226,31 +295,33 @@ public class RoomService {
                 user,
                 room.getId().toString(),
                 roundId,
-                room.getEntryCost().longValue(),
+                room.getEntryCost().longValue() * requestedSeats.size(),
                 OffsetDateTime.now().plusMinutes(15),
                 reserveOperationId
         );
 
-        int nextOrder = room.getCurrentPlayers() + 1;
-        RoomPlayer roomPlayer = RoomPlayer.builder()
-                .room(room)
-                .userId(user.getId())
-                .username(user.getUsername())
-                .walletReservationId(reservation.getReservationId())
-                .boostUsed(boostUsed)
-                .roundId(roundId)
-                .playerOrder(nextOrder)
-                .winner(false)
-                .joinTime(LocalDateTime.now())
-                .status("JOINED")
-                .build();
+        LocalDateTime joinTime = LocalDateTime.now();
+        for (Integer seat : requestedSeats) {
+            RoomPlayer roomPlayer = RoomPlayer.builder()
+                    .room(room)
+                    .userId(user.getId())
+                    .username(user.getUsername())
+                    .walletReservationId(reservation.getReservationId())
+                    .boostUsed(false)
+                    .roundId(roundId)
+                    .playerOrder(seat)
+                    .winner(false)
+                    .joinTime(joinTime)
+                    .status("JOINED")
+                    .build();
+            room.addPlayer(roomPlayer);
+            roomPlayerRepository.save(roomPlayer);
+        }
 
-        room.addPlayer(roomPlayer);
-        room.setCurrentPlayers(nextOrder);
-        room.setPrizeFund(room.getPrizeFund() + room.getEntryCost());
-        room.setStatus(nextOrder >= room.getMaxPlayers() ? STATUS_FULL : STATUS_WAITING);
-
-        roomPlayerRepository.save(roomPlayer);
+        int nextPlayersCount = room.getCurrentPlayers() + requestedSeats.size();
+        room.setCurrentPlayers(nextPlayersCount);
+        room.setPrizeFund(room.getPrizeFund() + room.getEntryCost() * requestedSeats.size());
+        room.setStatus(nextPlayersCount >= room.getMaxPlayers() ? STATUS_FULL : STATUS_WAITING);
         roomRepository.save(room);
 
         roundEventLogService.logSystemEvent(
@@ -258,13 +329,16 @@ public class RoomService {
                 null,
                 "PLAYER_JOINED",
                 "Игрок вошёл в комнату",
-                "Игрок успешно вошел и entryCost зарезервирован.",
+                "Игрок успешно вошел и места зарезервированы.",
                 "{\"userId\":\"" + user.getId()
                         + "\",\"username\":\"" + escapeJson(user.getUsername())
+                        + "\",\"seats\":\"" + requestedSeats
                         + "\",\"reservationId\":\"" + reservation.getReservationId()
                         + "\",\"currentPlayers\":" + room.getCurrentPlayers()
                         + ",\"prizeFund\":" + room.getPrizeFund() + "}"
         );
+
+        publishRoomRealtime(room.getId());
 
         return JoinRoomResponse.builder()
                 .roomId(room.getId())
@@ -325,6 +399,13 @@ public class RoomService {
                     commitOperation,
                     "Commit room entry for room " + room.getId()
             );
+            if (p.getBoostReservationId() != null) {
+                walletService.commitSystem(
+                        p.getBoostReservationId(),
+                        "room-boost-commit:" + room.getId() + ":" + p.getBoostReservationId(),
+                        "Commit boost reservation for room " + room.getId() + ", seat " + p.getPlayerOrder()
+                );
+            }
 
             if (isWinner) {
                 p.setWinner(true);
@@ -336,13 +417,15 @@ public class RoomService {
             roomPlayerRepository.save(p);
         }
 
-        long prizeFund = room.getPrizeFund() == null || room.getPrizeFund() <= 0
+        long totalPool = room.getPrizeFund() == null || room.getPrizeFund() <= 0
                 ? (long) room.getEntryCost() * players.size()
                 : room.getPrizeFund();
+        int winnerPercent = resolveWinnerPercent(room);
+        long winnerPayout = Math.floorDiv(totalPool * winnerPercent, 100);
 
         walletService.creditWin(
                 winnerPlayer.getUserId(),
-                prizeFund,
+                winnerPayout,
                 "room-win:" + room.getId() + ":" + winnerPlayer.getUserId(),
                 "Prize payout for room " + room.getId()
         );
@@ -373,7 +456,8 @@ public class RoomService {
                 players,
                 winner,
                 winnerIndex,
-                balanceBeforeByUserId
+                balanceBeforeByUserId,
+                winnerPayout
         );
 
         roundEventLogService.logSystemEvent(
@@ -387,9 +471,13 @@ public class RoomService {
                         + "\",\"winnerIndex\":" + winnerIndex
                         + ",\"roll\":" + winner.getRoll()
                         + ",\"totalWeight\":" + winner.getTotalWeight()
-                        + ",\"prizeFund\":" + prizeFund
+                        + ",\"winnerPercent\":" + winnerPercent
+                        + ",\"totalPool\":" + totalPool
+                        + ",\"winnerPayout\":" + winnerPayout
                         + ",\"randomHash\":\"" + escapeJson(winner.getRandomHash()) + "\"}"
         );
+
+        publishRoomRealtime(room.getId());
 
         return FinishRoomResponse.builder()
                 .roomId(room.getId())
@@ -401,7 +489,7 @@ public class RoomService {
                 .totalWeight(winner.getTotalWeight())
                 .randomHash(winner.getRandomHash())
                 .randomSeed(winner.getRandomSeed())
-                .prizeFund(prizeFund)
+                .prizeFund(winnerPayout)
                 .players(settlements)
                 .build();
     }
@@ -420,6 +508,13 @@ public class RoomService {
                     "room-cancel-release:" + room.getId() + ":" + p.getWalletReservationId(),
                     "Release due to room cancellation"
             );
+            if (p.getBoostReservationId() != null) {
+                walletService.releaseSystem(
+                        p.getBoostReservationId(),
+                        "room-boost-cancel-release:" + room.getId() + ":" + p.getBoostReservationId(),
+                        "Release boost reservation due to room cancellation"
+                );
+            }
             p.setWinner(false);
             p.setStatus("RELEASED");
             roomPlayerRepository.save(p);
@@ -437,6 +532,8 @@ public class RoomService {
                 reason == null ? "Комната отменена" : reason,
                 null
         );
+
+        publishRoomRealtime(room.getId());
     }
 
     @Transactional
@@ -446,16 +543,29 @@ public class RoomService {
 
         for (Room room : waitingRooms) {
             if (room.hasTimedOut()) {
-                if (STATUS_FULL.equals(room.getStatus())) {
+                if (shouldFinishTimedOutRoom(room)) {
                     finishRoom(room.getId(), null);
                 } else {
-                    cancelRoom(room.getId(), "Таймер истек: комната не заполнилась, резервации освобождены.");
+                    cancelRoom(room.getId(), "Таймер истек: недостаточно уникальных игроков, резервации освобождены.");
                 }
                 processed++;
             }
         }
 
         return processed;
+    }
+
+    private boolean shouldFinishTimedOutRoom(Room room) {
+        if (!STATUS_FULL.equals(room.getStatus())) {
+            return false;
+        }
+        List<RoomPlayer> players = roomPlayerRepository.findByRoom_IdOrderByPlayerOrderAsc(room.getId());
+        long distinctUsers = players.stream()
+                .map(RoomPlayer::getUserId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .count();
+        return distinctUsers >= 2;
     }
 
     @Transactional(readOnly = true)
@@ -505,6 +615,7 @@ public class RoomService {
                 .currentPlayers(room.getCurrentPlayers())
                 .botCount(room.getBotCount())
                 .createdAt(room.getCreatedAt())
+                .remainingSeconds(remainingSeconds(room))
                 .build();
     }
 
@@ -534,13 +645,14 @@ public class RoomService {
                                       List<RoomPlayer> players,
                                       SelectWinnerResponse winner,
                                       int winnerIndex,
-                                      Map<UUID, Long> balanceBeforeByUserId) {
+                                      Map<UUID, Long> balanceBeforeByUserId,
+                                      long winnerPayout) {
         GameResult result = GameResult.builder()
                 .id(UUID.randomUUID())
                 .roomId(room.getId())
                 .maxPlayers(room.getMaxPlayers())
                 .entryCost(room.getEntryCost())
-                .prizeFund(room.getPrizeFund())
+                .prizeFund(Math.toIntExact(winnerPayout))
                 .boostAllowed(room.getBoostAllowed())
                 .botCount(room.getBotCount())
                 .roomStatus(room.getStatus())
@@ -586,10 +698,185 @@ public class RoomService {
         return gameResultRepository.save(result);
     }
 
+    private int resolveWinnerPercent(Room room) {
+        if (room.getTemplateId() == null) {
+            return 100;
+        }
+        return roomConfigRepository.findById(room.getTemplateId())
+                .map(RoomConfig::getWinnerPercent)
+                .filter(p -> p != null && p > 0)
+                .orElse(100);
+    }
+
     private String escapeJson(String value) {
         if (value == null) {
             return "";
         }
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private RoomConfig resolveTemplateForMatching(JoinByTemplateRequest request) {
+        if (request.getTemplateId() != null) {
+            RoomConfig template = roomConfigRepository.findById(request.getTemplateId())
+                    .orElseThrow(() -> new NotFoundException("Room template not found: " + request.getTemplateId()));
+            if (!Boolean.TRUE.equals(template.getActive())) {
+                throw new IllegalArgumentException("Room template is not active: " + request.getTemplateId());
+            }
+            if (!template.getMaxPlayers().equals(request.getMaxPlayers())
+                    || !template.getEntryCost().equals(request.getEntryCost())
+                    || !template.getBonusEnabled().equals(request.getBoostAllowed())) {
+                throw new IllegalArgumentException("Template parameters do not match requested room parameters");
+            }
+            return template;
+        }
+
+        return roomConfigRepository
+                .findFirstByActiveTrueAndMaxPlayersAndEntryCostAndBonusEnabledOrderByCreatedAtDesc(
+                        request.getMaxPlayers(),
+                        request.getEntryCost(),
+                        request.getBoostAllowed()
+                )
+                .orElseThrow(() -> new NotFoundException("Active room template for requested parameters not found"));
+    }
+
+    private List<Integer> normalizeSeats(List<Integer> seats, int maxPlayers) {
+        if (seats == null || seats.isEmpty()) {
+            throw new IllegalArgumentException("Seats are required");
+        }
+        Set<Integer> unique = new HashSet<>(seats);
+        if (unique.size() != seats.size()) {
+            throw new IllegalArgumentException("Seat numbers must be unique");
+        }
+        int maxSeatsForUser = maxSeatsPerUser(maxPlayers);
+        if (seats.size() > maxSeatsForUser) {
+            throw new IllegalArgumentException("User cannot request more than " + maxSeatsForUser + " seat(s)");
+        }
+
+        List<Integer> normalized = new ArrayList<>(seats);
+        Collections.sort(normalized);
+        for (Integer seat : normalized) {
+            if (seat == null || seat < 1 || seat > maxPlayers) {
+                throw new IllegalArgumentException("Seat number must be between 1 and " + maxPlayers);
+            }
+        }
+        return normalized;
+    }
+
+    private RequestedSeatSelection resolveRequestedSeatSelection(List<Integer> seats, Integer seatsCount, int maxPlayers) {
+        boolean hasExplicitSeats = seats != null && !seats.isEmpty();
+        boolean hasSeatsCount = seatsCount != null;
+        if (hasExplicitSeats == hasSeatsCount) {
+            throw new IllegalArgumentException("Provide either 'seats' or 'seatsCount'");
+        }
+
+        if (hasExplicitSeats) {
+            List<Integer> normalizedSeats = normalizeSeats(seats, maxPlayers);
+            return RequestedSeatSelection.ofExplicit(normalizedSeats);
+        }
+
+        int normalizedCount = normalizeSeatsCount(seatsCount, maxPlayers);
+        return RequestedSeatSelection.ofCount(normalizedCount);
+    }
+
+    private int normalizeSeatsCount(Integer seatsCount, int maxPlayers) {
+        if (seatsCount == null || seatsCount <= 0) {
+            throw new IllegalArgumentException("seatsCount must be > 0");
+        }
+        int maxSeatsForUser = maxSeatsPerUser(maxPlayers);
+        if (seatsCount > maxSeatsForUser) {
+            throw new IllegalArgumentException("User cannot request more than " + maxSeatsForUser + " seat(s)");
+        }
+        return seatsCount;
+    }
+
+    private List<Integer> resolveSeatsForJoin(UUID roomId, RequestedSeatSelection selection) {
+        if (selection.explicitSeats() != null) {
+            return selection.explicitSeats();
+        }
+        List<Integer> freeSeats = findFreeSeats(roomId);
+        if (freeSeats.size() < selection.seatsCount()) {
+            throw new IllegalArgumentException(
+                    "Not enough free seats in room: requested=" + selection.seatsCount() + ", available=" + freeSeats.size()
+            );
+        }
+        Collections.shuffle(freeSeats, ThreadLocalRandom.current());
+        List<Integer> picked = new ArrayList<>(freeSeats.subList(0, selection.seatsCount()));
+        Collections.sort(picked);
+        return picked;
+    }
+
+    private boolean hasEnoughFreeSeats(UUID roomId, RequestedSeatSelection selection) {
+        if (selection.explicitSeats() != null) {
+            Set<Integer> occupied = findOccupiedSeats(roomId);
+            return selection.explicitSeats().stream().noneMatch(occupied::contains);
+        }
+        return findFreeSeats(roomId).size() >= selection.seatsCount();
+    }
+
+    private List<Integer> findFreeSeats(UUID roomId) {
+        Room room = findRoom(roomId);
+        Set<Integer> occupied = findOccupiedSeats(roomId);
+        List<Integer> free = new ArrayList<>();
+        for (int seat = 1; seat <= room.getMaxPlayers(); seat++) {
+            if (!occupied.contains(seat)) {
+                free.add(seat);
+            }
+        }
+        return free;
+    }
+
+    private Set<Integer> findOccupiedSeats(UUID roomId) {
+        return roomPlayerRepository.findByRoom_IdOrderByPlayerOrderAsc(roomId)
+                .stream()
+                .map(RoomPlayer::getPlayerOrder)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
+    private int maxSeatsPerUser(int maxPlayers) {
+        return Math.max(1, maxPlayers / 2);
+    }
+
+    private record RequestedSeatSelection(List<Integer> explicitSeats, Integer seatsCount) {
+        private static RequestedSeatSelection ofExplicit(List<Integer> explicitSeats) {
+            return new RequestedSeatSelection(explicitSeats, explicitSeats.size());
+        }
+
+        private static RequestedSeatSelection ofCount(Integer seatsCount) {
+            return new RequestedSeatSelection(null, seatsCount);
+        }
+    }
+
+    private boolean hasMoreThanFiveSecondsLeft(Room room) {
+        return remainingMillis(room) > MIN_TIME_LEFT_TO_JOIN_MS;
+    }
+
+    private Long remainingSeconds(Room room) {
+        if (room.getFirstPlayerJoinedAt() == null) {
+            return null;
+        }
+        long millis = remainingMillis(room);
+        if (millis <= 0) {
+            return 0L;
+        }
+        return (long) Math.ceil(millis / 1000.0d);
+    }
+
+    private long remainingMillis(Room room) {
+        if (room.getTimerSeconds() == null) {
+            return 0L;
+        }
+        if (room.getFirstPlayerJoinedAt() == null) {
+            return Long.MAX_VALUE;
+        }
+        LocalDateTime timeoutAt = room.getFirstPlayerJoinedAt().plusSeconds(room.getTimerSeconds());
+        long millisLeft = java.time.Duration.between(LocalDateTime.now(), timeoutAt).toMillis();
+        return Math.max(0L, millisLeft);
+    }
+
+    private void publishRoomRealtime(UUID roomId) {
+        RoomStateResponse roomState = getRoomState(roomId);
+        roomEventPublisher.publishRoomState(roomState);
+        roomEventPublisher.publishRoomEvents(roomId, roundEventLogService.getByRoomId(roomId));
     }
 }

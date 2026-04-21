@@ -17,6 +17,7 @@ public class RoomTemplateResponse {
     Integer bonusPrice;
     Integer bonusWeight;
     Integer maxPlayers;
+    Integer winnerPercent;
     String gameMechanic;
     LocalDateTime createdAt;
     LocalDateTime updatedAt;

@@ -35,6 +35,11 @@ public class RoomTemplateRequest {
     @Max(10)
     private Integer maxPlayers;
 
+    @NotNull
+    @Min(1)
+    @Max(100)
+    private Integer winnerPercent;
+
     @NotBlank
     private String gameMechanic;
 }

@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface RoomConfigRepository extends JpaRepository<RoomConfig, UUID> {
@@ -14,6 +15,12 @@ public interface RoomConfigRepository extends JpaRepository<RoomConfig, UUID> {
     boolean existsByTemplateNameIgnoreCaseAndIdNot(String templateName, UUID id);
 
     List<RoomConfig> findAllByOrderByCreatedAtDesc();
+
+    Optional<RoomConfig> findFirstByActiveTrueAndMaxPlayersAndEntryCostAndBonusEnabledOrderByCreatedAtDesc(
+            Integer maxPlayers,
+            Integer entryCost,
+            Boolean bonusEnabled
+    );
 
     @Query("select distinct rc.entryCost from RoomConfig rc order by rc.entryCost asc")
     List<Integer> findDistinctEntryCosts();

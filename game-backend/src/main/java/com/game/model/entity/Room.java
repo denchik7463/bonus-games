@@ -79,12 +79,12 @@ public class Room {
     }
 
     public boolean hasTimedOut() {
-        if (createdAt == null) {
+        if (firstPlayerJoinedAt == null) {
             return false;
         }
         if (timerSeconds == null || timerSeconds <= 0) {
             return false;
         }
-        return Duration.between(createdAt, LocalDateTime.now()).getSeconds() >= timerSeconds;
+        return Duration.between(firstPlayerJoinedAt, LocalDateTime.now()).getSeconds() >= timerSeconds;
     }
 }

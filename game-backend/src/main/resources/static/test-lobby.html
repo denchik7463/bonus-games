@@ -129,8 +129,24 @@
         <input id="templateId" placeholder="UUID template" />
       </div>
       <div>
-        <label>Use boost (join)</label>
-        <select id="boostUsed"><option value="false">false</option><option value="true">true</option></select>
+        <label>Seats to join (comma separated, optional)</label>
+        <input id="joinSeats" placeholder="1,2" />
+      </div>
+      <div>
+        <label>Random seats count (join)</label>
+        <input id="joinSeatsCount" placeholder="e.g. 2" />
+      </div>
+      <div>
+        <label>Seats for room find/create (optional)</label>
+        <input id="findSeats" placeholder="1,2" />
+      </div>
+      <div>
+        <label>Random seats count (find)</label>
+        <input id="findSeatsCount" placeholder="e.g. 2" />
+      </div>
+      <div>
+        <label>Boost seat number</label>
+        <input id="boostSeatNumber" value="1" placeholder="e.g. 1" />
       </div>
     </div>
     <div class="row" style="margin-top:8px;">
@@ -243,6 +259,46 @@
     el.className = ok ? 'status ok' : 'status bad';
   }
 
+  function parseSeats(raw) {
+    const parts = String(raw || '')
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean);
+    if (!parts.length) {
+      throw new Error('Seats are empty');
+    }
+    const seats = parts.map(v => Number(v));
+    if (seats.some(v => !Number.isInteger(v))) {
+      throw new Error('Seats must be integers');
+    }
+    return seats;
+  }
+
+  function parseOptionalPositiveInt(raw) {
+    const value = String(raw || '').trim();
+    if (!value) return null;
+    const n = Number(value);
+    if (!Number.isInteger(n) || n <= 0) {
+      throw new Error('Seats count must be a positive integer');
+    }
+    return n;
+  }
+
+  function buildSeatPayload(seatsInputId, seatsCountInputId) {
+    const seatsRaw = String(document.getElementById(seatsInputId).value || '').trim();
+    const seatsCount = parseOptionalPositiveInt(document.getElementById(seatsCountInputId).value);
+    if (seatsRaw && seatsCount != null) {
+      throw new Error("Provide either seats or seatsCount, not both");
+    }
+    if (seatsRaw) {
+      return { seats: parseSeats(seatsRaw) };
+    }
+    if (seatsCount != null) {
+      return { seatsCount };
+    }
+    throw new Error("Provide seats or seatsCount");
+  }
+
   async function registerUser() {
     try {
       const body = {
@@ -302,7 +358,7 @@
     try {
       const roomId = document.getElementById('roomId').value.trim();
       if (!roomId) throw new Error('Room ID is empty');
-      const body = { boostUsed: document.getElementById('boostUsed').value === 'true' };
+      const body = buildSeatPayload('joinSeats', 'joinSeatsCount');
       const data = await api(`/api/rooms/${roomId}/join`, { method: 'POST', body: JSON.stringify(body) });
       setRoomStatus(`Joined room. reservationId=${data.reservationId}`);
       await refreshOnce();
@@ -315,13 +371,23 @@
     try {
       const templateId = document.getElementById('templateId').value.trim();
       if (!templateId) throw new Error('Template ID is empty');
-      const data = await api('/api/rooms/join-by-template', {
+      const templatesRaw = document.getElementById('templatesView').textContent.trim();
+      let templates = [];
+      try { templates = JSON.parse(templatesRaw); } catch (_) {}
+      const selected = Array.isArray(templates) ? templates.find(t => t.id === templateId) : null;
+      if (!selected) throw new Error('Template not found in loaded templates. Click Load templates first.');
+      const data = await api('/api/room/find', {
         method: 'POST',
-        body: JSON.stringify({ templateId })
+        body: JSON.stringify({
+          templateId,
+          maxPlayers: selected.maxPlayers,
+          entryCost: selected.entryCost,
+          boostAllowed: selected.bonusEnabled,
+          ...buildSeatPayload('findSeats', 'findSeatsCount')
+        }),
       });
-      document.getElementById('roomId').value = data.roomId;
-      setRoomStatus(`Joined by template. roomId=${data.roomId}, reservationId=${data.reservationId}`);
-      await refreshOnce();
+      document.getElementById('roomId').value = data.id;
+      setRoomStatus(`Room resolved by params. roomId=${data.id}. Now join by room ID.`);
     } catch (e) {
       setRoomStatus(`Join-by-template error: ${e.message || JSON.stringify(e)}`, false);
     }
@@ -331,8 +397,13 @@
     try {
       const roomId = document.getElementById('roomId').value.trim();
       if (!roomId) throw new Error('Room ID is empty');
-      const data = await api(`/api/rooms/${roomId}/boost/activate`, { method: 'POST', body: JSON.stringify({}) });
-      setRoomStatus(`Boost activated. price=${data.boostPrice}, weight=${data.boostWeight}`);
+      const seatNumber = parseOptionalPositiveInt(document.getElementById('boostSeatNumber').value);
+      if (seatNumber == null) throw new Error('Boost seat number is required');
+      const data = await api(`/api/rooms/${roomId}/boost/activate`, {
+        method: 'POST',
+        body: JSON.stringify({ seatNumber })
+      });
+      setRoomStatus(`Boost reserved for seat ${data.seatNumber}. reservationId=${data.boostReservationId}, price=${data.boostPrice}, weight=${data.boostWeight}`);
       await refreshOnce();
     } catch (e) {
       setRoomStatus(`Boost error: ${e.message || JSON.stringify(e)}`, false);
