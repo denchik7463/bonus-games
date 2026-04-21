@@ -11,12 +11,14 @@ import java.util.UUID;
 @Builder
 public class RoomStateResponse {
     UUID roomId;
+    String shortId;
     String status;
     Integer currentPlayers;
     Integer maxPlayers;
     Integer entryCost;
     Integer prizeFund;
     Integer timerSeconds;
+    Long remainingSeconds;
     LocalDateTime createdAt;
     LocalDateTime firstPlayerJoinedAt;
     LocalDateTime startedAt;

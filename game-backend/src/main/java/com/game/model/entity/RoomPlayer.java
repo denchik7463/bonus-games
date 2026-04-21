@@ -34,6 +34,9 @@ public class RoomPlayer {
     @Column(name = "boost_used", nullable = false)
     private Boolean boostUsed;
 
+    @Column(name = "boost_reservation_id")
+    private UUID boostReservationId;
+
     @Column(name = "round_id", nullable = false, length = 128)
     private String roundId;
 

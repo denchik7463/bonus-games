@@ -18,8 +18,12 @@ public class RandomController {
     }
 
     @PostMapping("/generate")
-    public RandomResponse generate(@RequestParam int min, @RequestParam int max) {
-        return randomNumberService.generate(min, max);
+    public RandomResponse generate(
+            @RequestParam int min,
+            @RequestParam int max,
+            @RequestParam(defaultValue = "1") int count
+    ) {
+        return randomNumberService.generate(min, max, count);
     }
 
     @GetMapping("/replay/{hash}")

@@ -21,6 +21,9 @@ public class Room {
     @Id
     private UUID id;
 
+    @Column(name = "short_id", nullable = false, length = 6)
+    private String shortId;
+
     @Column(name = "template_id")
     private UUID templateId;
 
@@ -79,12 +82,12 @@ public class Room {
     }
 
     public boolean hasTimedOut() {
-        if (createdAt == null) {
+        if (firstPlayerJoinedAt == null) {
             return false;
         }
         if (timerSeconds == null || timerSeconds <= 0) {
             return false;
         }
-        return Duration.between(createdAt, LocalDateTime.now()).getSeconds() >= timerSeconds;
+        return Duration.between(firstPlayerJoinedAt, LocalDateTime.now()).getSeconds() >= timerSeconds;
     }
 }

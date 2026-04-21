@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,17 +23,17 @@ public class RandomNumberService {
     @Value("${app.hash-secret}")
     private String hashSecret;
 
-    public RandomResponse generate(int min, int max) {
-        validateRange(min, max);
+    public RandomResponse generate(int min, int max, int count) {
+        validateRequest(min, max, count);
 
         long seed = secureRandom.nextLong();
-        int value = generateDeterministicValue(seed, min, max);
+        List<Integer> values = generateDeterministicValues(seed, min, max, count);
         Instant generatedAt = Instant.now();
 
-        String raw = seed + ":" + min + ":" + max + ":" + generatedAt.toEpochMilli() + ":" + hashSecret;
+        String raw = seed + ":" + min + ":" + max + ":" + count + ":" + generatedAt.toEpochMilli() + ":" + hashSecret;
         String hash = HashUtil.sha256(raw);
 
-        RandomRecord record = new RandomRecord(seed, min, max, value, hash, generatedAt);
+        RandomRecord record = new RandomRecord(seed, min, max, count, values, hash, generatedAt);
         storage.put(hash, record);
 
         return toResponse(record);
@@ -44,13 +46,19 @@ public class RandomNumberService {
             throw new IllegalArgumentException("Hash not found");
         }
 
-        int reproducedValue = generateDeterministicValue(record.getSeed(), record.getMin(), record.getMax());
+        List<Integer> reproducedValues = generateDeterministicValues(
+                record.getSeed(),
+                record.getMin(),
+                record.getMax(),
+                record.getCount()
+        );
 
         RandomRecord replayed = new RandomRecord(
                 record.getSeed(),
                 record.getMin(),
                 record.getMax(),
-                reproducedValue,
+                record.getCount(),
+                reproducedValues,
                 record.getHash(),
                 record.getGeneratedAt()
         );
@@ -58,24 +66,32 @@ public class RandomNumberService {
         return toResponse(replayed);
     }
 
-    private int generateDeterministicValue(long seed, int min, int max) {
+    private List<Integer> generateDeterministicValues(long seed, int min, int max, int count) {
         Random random = new Random(seed);
-        return random.nextInt((max - min) + 1) + min;
+        List<Integer> values = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            values.add(random.nextInt((max - min) + 1) + min);
+        }
+        return values;
     }
 
-    private void validateRange(int min, int max) {
+    private void validateRequest(int min, int max, int count) {
         if (min > max) {
             throw new IllegalArgumentException("min must be <= max");
+        }
+        if (count <= 0) {
+            throw new IllegalArgumentException("count must be > 0");
         }
     }
 
     private RandomResponse toResponse(RandomRecord record) {
         return new RandomResponse(
-                record.getValue(),
+                record.getValues(),
                 record.getHash(),
                 record.getSeed(),
                 record.getMin(),
                 record.getMax(),
+                record.getCount(),
                 record.getGeneratedAt()
         );
     }

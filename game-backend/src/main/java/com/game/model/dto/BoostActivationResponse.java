@@ -12,6 +12,8 @@ public class BoostActivationResponse {
     UUID roomId;
     UUID userId;
     String username;
+    Integer seatNumber;
+    UUID boostReservationId;
     Boolean boostUsed;
     Integer boostPrice;
     Integer boostWeight;

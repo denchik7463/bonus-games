@@ -247,10 +247,14 @@ public class LotteryService {
         }
 
         Map<String, Object> randomProof = new LinkedHashMap<>();
-        RandomNumberResponse lastRandom = null;
-        for (int i = 0; i < rounds; i++) {
-            RandomNumberResponse random = randomClient.generate(1, total);
-            int roll = random.getValue();
+        RandomNumberResponse randomBatch = randomClient.generate(1, total, rounds);
+        List<Integer> rolls = randomBatch.getValues();
+        if (rolls == null || rolls.size() != rounds) {
+            throw new IllegalStateException("Random service returned invalid values count: expected=" + rounds
+                    + ", actual=" + (rolls == null ? 0 : rolls.size()));
+        }
+
+        for (int roll : rolls) {
             int cumulative = 0;
             for (int j = 0; j < intWeights.length; j++) {
                 cumulative += intWeights[j];
@@ -259,14 +263,13 @@ public class LotteryService {
                     break;
                 }
             }
-            lastRandom = random;
         }
 
-        if (lastRandom != null) {
-            randomProof.put("lastHash", lastRandom.getHash());
-            randomProof.put("lastSeed", lastRandom.getSeed());
-            randomProof.put("lastGeneratedAt", lastRandom.getGeneratedAt());
-            randomProof.put("replayUrl", "/api/random/replay/" + lastRandom.getHash());
+        if (randomBatch != null) {
+            randomProof.put("lastHash", randomBatch.getHash());
+            randomProof.put("lastSeed", randomBatch.getSeed());
+            randomProof.put("lastGeneratedAt", randomBatch.getGeneratedAt());
+            randomProof.put("replayUrl", "/api/random/replay/" + randomBatch.getHash());
         }
 
         return new SimulationResult(wins, randomProof);
