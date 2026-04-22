@@ -36,7 +36,7 @@ public class AuthService {
             UserRepository userRepository,
             WalletAccountRepository walletAccountRepository,
             AuthSessionRepository authSessionRepository,
-            @Value("${app.auth.token-ttl-hours:24}") long tokenTtlHours
+            @Value("${app.auth.token-ttl-hours:2400}") long tokenTtlHours
     ) {
         this.userRepository = userRepository;
         this.walletAccountRepository = walletAccountRepository;
