@@ -27,6 +27,9 @@ public class JoinByTemplateRequest {
     @NotNull
     private Boolean boostAllowed;
 
+    @Min(0)
+    private Integer boostPrice;
+
     private List<Integer> seats;
 
     @Min(1)

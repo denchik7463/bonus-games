@@ -267,8 +267,10 @@ public class RoomService {
     @Transactional(readOnly = true)
     public RoomStateResponse getRoomState(UUID roomId) {
         Room room = findRoom(roomId);
-        List<RoomPlayerResponse> players = roomPlayerRepository.findByRoom_IdOrderByPlayerOrderAsc(roomId)
-                .stream()
+        List<RoomPlayer> roomPlayers = roomPlayerRepository.findByRoom_IdOrderByPlayerOrderAsc(roomId);
+        BoostContext boostContext = resolveBoostContext(room);
+        RoomChanceSummary chanceSummary = calculateRoomChanceSummary(room.getMaxPlayers(), boostContext);
+        List<RoomPlayerResponse> players = roomPlayers.stream()
                 .map(this::toPlayerResponse)
                 .toList();
 
@@ -279,7 +281,12 @@ public class RoomService {
                 .currentPlayers(room.getCurrentPlayers())
                 .maxPlayers(room.getMaxPlayers())
                 .entryCost(room.getEntryCost())
-                .prizeFund(room.getPrizeFund())
+                .prizeFund(Math.toIntExact(resolveRoomPrizeFund(room)))
+                .boostPrice(boostContext.boostPrice())
+                .boostWeight(boostContext.boostWeight())
+                .currentChancePercent(chanceSummary.currentChancePercent())
+                .chanceWithBoostPercent(chanceSummary.chanceWithBoostPercent())
+                .boostAbsoluteGainPercent(chanceSummary.boostAbsoluteGainPercent())
                 .timerSeconds(room.getTimerSeconds())
                 .remainingSeconds(remainingSeconds(room))
                 .createdAt(room.getCreatedAt())
@@ -366,7 +373,6 @@ public class RoomService {
 
         int nextPlayersCount = room.getCurrentPlayers() + requestedSeats.size();
         room.setCurrentPlayers(nextPlayersCount);
-        room.setPrizeFund(room.getPrizeFund() + room.getEntryCost() * requestedSeats.size());
         room.setStatus(nextPlayersCount >= room.getMaxPlayers() ? STATUS_FULL : STATUS_WAITING);
         roomRepository.save(room);
 
@@ -473,11 +479,9 @@ public class RoomService {
             roomPlayerRepository.save(p);
         }
 
-        long totalPool = room.getPrizeFund() == null || room.getPrizeFund() <= 0
-                ? (long) room.getEntryCost() * players.size()
-                : room.getPrizeFund();
+        long totalPool = resolveBasePool(room);
         int winnerPercent = resolveWinnerPercent(room);
-        long winnerPayout = Math.floorDiv(totalPool * winnerPercent, 100);
+        long winnerPayout = resolveRoomPrizeFund(room);
 
         if (!isBot(winnerPlayer)) {
             walletService.creditWin(
@@ -652,7 +656,6 @@ public class RoomService {
 
         room.setBotCount(existingBotCount + addedBots);
         room.setCurrentPlayers(existingPlayers.size() + addedBots);
-        room.setPrizeFund((room.getPrizeFund() == null ? 0 : room.getPrizeFund()) + room.getEntryCost() * addedBots);
         room.setStatus(STATUS_FULL);
         roomRepository.save(room);
 
@@ -761,15 +764,66 @@ public class RoomService {
                 .build();
     }
 
+    private RoomChanceSummary calculateRoomChanceSummary(Integer maxPlayers, BoostContext boostContext) {
+        if (maxPlayers == null || maxPlayers <= 0) {
+            return new RoomChanceSummary(0.0d, 0.0d, 0.0d);
+        }
+        int baseWeight = Math.max(1, boostContext.baseWeight());
+        int boostWeight = Math.max(0, boostContext.boostWeight());
+        double currentChance = 100.0d / (double) maxPlayers;
+        double chanceWithBoost;
+        if (!boostContext.boostAllowed()) {
+            chanceWithBoost = currentChance;
+        } else {
+            int denominator = (baseWeight * (maxPlayers - 1)) + (baseWeight + boostWeight);
+            chanceWithBoost = denominator <= 0
+                    ? 0.0d
+                    : ((double) (baseWeight + boostWeight) * 100.0d / (double) denominator);
+        }
+        double absoluteGain = chanceWithBoost - currentChance;
+        return new RoomChanceSummary(
+                round4(currentChance),
+                round4(chanceWithBoost),
+                round4(absoluteGain)
+        );
+    }
+
+    private BoostContext resolveBoostContext(Room room) {
+        int boostWeight = 10;
+        Integer boostPrice = null;
+        boolean boostAllowed = Boolean.TRUE.equals(room.getBoostAllowed());
+
+        if (room.getTemplateId() != null) {
+            RoomConfig template = roomConfigRepository.findById(room.getTemplateId()).orElse(null);
+            if (template != null) {
+                boostWeight = template.getBonusWeight() == null ? 10 : template.getBonusWeight();
+                boostPrice = template.getBonusPrice();
+                boostAllowed = Boolean.TRUE.equals(template.getBonusEnabled()) && boostWeight > 0;
+            }
+        }
+        return new BoostContext(boostAllowed, 100, Math.max(0, boostWeight), boostPrice);
+    }
+
+    private double round4(double value) {
+        return Math.round(value * 10_000.0d) / 10_000.0d;
+    }
+
     private RoomResponse toResponse(Room room) {
+        BoostContext boostContext = resolveBoostContext(room);
+        RoomChanceSummary chanceSummary = calculateRoomChanceSummary(room.getMaxPlayers(), boostContext);
         return RoomResponse.builder()
                 .id(room.getId())
                 .shortId(room.getShortId())
                 .templateId(room.getTemplateId())
                 .maxPlayers(room.getMaxPlayers())
                 .entryCost(room.getEntryCost())
-                .prizeFund(room.getPrizeFund())
+                .prizeFund(Math.toIntExact(resolveRoomPrizeFund(room)))
                 .boostAllowed(room.getBoostAllowed())
+                .boostPrice(boostContext.boostPrice())
+                .boostWeight(boostContext.boostWeight())
+                .currentChancePercent(chanceSummary.currentChancePercent())
+                .chanceWithBoostPercent(chanceSummary.chanceWithBoostPercent())
+                .boostAbsoluteGainPercent(chanceSummary.boostAbsoluteGainPercent())
                 .timerSeconds(room.getTimerSeconds())
                 .status(room.getStatus())
                 .currentPlayers(room.getCurrentPlayers())
@@ -792,7 +846,7 @@ public class RoomService {
                 .templateId(template.getId())
                 .maxPlayers(template.getMaxPlayers())
                 .entryCost(template.getEntryCost())
-                .prizeFund(0)
+                .prizeFund(Math.toIntExact(calculatePrizeFund(template.getEntryCost(), template.getMaxPlayers(), template.getWinnerPercent())))
                 .boostAllowed(template.getBonusEnabled())
                 .timerSeconds(ROOM_TIMER_SECONDS)
                 .status(STATUS_WAITING)
@@ -879,6 +933,25 @@ public class RoomService {
                 .orElse(100);
     }
 
+    private long resolveBasePool(Room room) {
+        if (room.getEntryCost() == null || room.getMaxPlayers() == null) {
+            return 0L;
+        }
+        return (long) room.getEntryCost() * room.getMaxPlayers();
+    }
+
+    private long resolveRoomPrizeFund(Room room) {
+        return calculatePrizeFund(room.getEntryCost(), room.getMaxPlayers(), resolveWinnerPercent(room));
+    }
+
+    private long calculatePrizeFund(Integer entryCost, Integer maxPlayers, Integer winnerPercent) {
+        if (entryCost == null || maxPlayers == null || winnerPercent == null || winnerPercent <= 0) {
+            return 0L;
+        }
+        long totalPool = (long) entryCost * maxPlayers;
+        return Math.floorDiv(totalPool * winnerPercent, 100);
+    }
+
     private String escapeJson(String value) {
         if (value == null) {
             return "";
@@ -886,7 +959,16 @@ public class RoomService {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
+    private record BoostContext(boolean boostAllowed, int baseWeight, int boostWeight, Integer boostPrice) {
+    }
+
+    private record RoomChanceSummary(double currentChancePercent,
+                                     double chanceWithBoostPercent,
+                                     double boostAbsoluteGainPercent) {
+    }
+
     private RoomConfig resolveTemplateForMatching(JoinByTemplateRequest request) {
+        Integer requestedBoostPrice = request.getBoostPrice();
         if (request.getTemplateId() != null) {
             RoomConfig template = roomConfigRepository.findById(request.getTemplateId())
                     .orElseThrow(() -> new NotFoundException("Room template not found: " + request.getTemplateId()));
@@ -898,7 +980,21 @@ public class RoomService {
                     || !template.getBonusEnabled().equals(request.getBoostAllowed())) {
                 throw new IllegalArgumentException("Template parameters do not match requested room parameters");
             }
+            if (requestedBoostPrice != null && !requestedBoostPrice.equals(template.getBonusPrice())) {
+                throw new IllegalArgumentException("Template boostPrice does not match requested boostPrice");
+            }
             return template;
+        }
+
+        if (requestedBoostPrice != null) {
+            return roomConfigRepository
+                    .findFirstByActiveTrueAndMaxPlayersAndEntryCostAndBonusEnabledAndBonusPriceOrderByCreatedAtDesc(
+                            request.getMaxPlayers(),
+                            request.getEntryCost(),
+                            request.getBoostAllowed(),
+                            requestedBoostPrice
+                    )
+                    .orElseThrow(() -> new NotFoundException("Active room template for requested parameters and boostPrice not found"));
         }
 
         return roomConfigRepository

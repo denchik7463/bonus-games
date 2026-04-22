@@ -17,6 +17,11 @@ public class RoomResponse {
     private Integer entryCost;
     private Integer prizeFund;
     private Boolean boostAllowed;
+    private Integer boostPrice;
+    private Integer boostWeight;
+    private Double currentChancePercent;
+    private Double chanceWithBoostPercent;
+    private Double boostAbsoluteGainPercent;
     private Integer timerSeconds;
     private String status;
     private Integer currentPlayers;

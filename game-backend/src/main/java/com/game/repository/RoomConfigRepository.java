@@ -23,6 +23,13 @@ public interface RoomConfigRepository extends JpaRepository<RoomConfig, UUID> {
             Boolean bonusEnabled
     );
 
+    Optional<RoomConfig> findFirstByActiveTrueAndMaxPlayersAndEntryCostAndBonusEnabledAndBonusPriceOrderByCreatedAtDesc(
+            Integer maxPlayers,
+            Integer entryCost,
+            Boolean bonusEnabled,
+            Integer bonusPrice
+    );
+
     @Query("select distinct rc.entryCost from RoomConfig rc order by rc.entryCost asc")
     List<Integer> findDistinctEntryCosts();
 

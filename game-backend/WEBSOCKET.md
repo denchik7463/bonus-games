@@ -67,12 +67,26 @@
 - `status` (`WAITING`, `FULL`, `FINISHED`, `CANCELLED`)
 - `currentPlayers`, `maxPlayers`
 - `entryCost`, `prizeFund`
+- `boostPrice`, `boostWeight`
+- `currentChancePercent`, `chanceWithBoostPercent`, `boostAbsoluteGainPercent`
 - `timerSeconds` — длительность таймера
 - `remainingSeconds` — оставшееся время (или `null`, если таймер ещё не стартовал)
 - `occupiedSeats` — массив занятых мест
 - `freeSeats` — массив свободных мест
 - `createdAt`, `firstPlayerJoinedAt`, `startedAt`, `finishedAt`
 - `players` — массив участников
+
+`prizeFund` рассчитывается по формуле:
+
+`prizeFund = entryCost * maxPlayers * winnerPercent / 100`
+
+Формулы по шансу буста (на уровне комнаты):
+
+- `currentChancePercent = 100 / maxPlayers`
+- `chanceWithBoostPercent = (baseWeight + boostWeight) / (baseWeight * (maxPlayers - 1) + (baseWeight + boostWeight)) * 100`
+- `boostAbsoluteGainPercent = chanceWithBoostPercent - currentChancePercent`
+
+`baseWeight = 100`.
 
 ### Пример ROOM_STATE
 
@@ -87,7 +101,12 @@
     "currentPlayers": 2,
     "maxPlayers": 4,
     "entryCost": 100,
-    "prizeFund": 200,
+    "prizeFund": 320,
+    "boostPrice": 50,
+    "boostWeight": 10,
+    "currentChancePercent": 25.0,
+    "chanceWithBoostPercent": 26.8293,
+    "boostAbsoluteGainPercent": 1.8293,
     "timerSeconds": 60,
     "remainingSeconds": 43,
     "occupiedSeats": [1, 3],

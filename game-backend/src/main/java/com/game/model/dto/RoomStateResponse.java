@@ -17,6 +17,11 @@ public class RoomStateResponse {
     Integer maxPlayers;
     Integer entryCost;
     Integer prizeFund;
+    Integer boostPrice;
+    Integer boostWeight;
+    Double currentChancePercent;
+    Double chanceWithBoostPercent;
+    Double boostAbsoluteGainPercent;
     Integer timerSeconds;
     Long remainingSeconds;
     LocalDateTime createdAt;

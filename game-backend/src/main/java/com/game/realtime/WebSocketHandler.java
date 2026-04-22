@@ -3,9 +3,11 @@ package com.game.realtime;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.game.auth.AuthService;
 import com.game.model.entity.Room;
+import com.game.model.entity.RoomConfig;
 import com.game.model.entity.RoomPlayer;
 import com.game.model.entity.RoundEventLog;
 import com.game.model.entity.User;
+import com.game.repository.RoomConfigRepository;
 import com.game.repository.RoomPlayerRepository;
 import com.game.repository.RoomRepository;
 import com.game.repository.RoundEventLogRepository;
@@ -44,6 +46,7 @@ public class WebSocketHandler extends TextWebSocketHandler {
     private final AuthService authService;
     private final ObjectMapper objectMapper;
     private final RoomRepository roomRepository;
+    private final RoomConfigRepository roomConfigRepository;
     private final RoomPlayerRepository roomPlayerRepository;
     private final RoundEventLogRepository roundEventLogRepository;
     private final Map<UUID, Set<WebSocketSession>> roomSessions = new ConcurrentHashMap<>();
@@ -51,11 +54,13 @@ public class WebSocketHandler extends TextWebSocketHandler {
     public WebSocketHandler(AuthService authService,
                             ObjectMapper objectMapper,
                             RoomRepository roomRepository,
+                            RoomConfigRepository roomConfigRepository,
                             RoomPlayerRepository roomPlayerRepository,
                             RoundEventLogRepository roundEventLogRepository) {
         this.authService = authService;
         this.objectMapper = objectMapper;
         this.roomRepository = roomRepository;
+        this.roomConfigRepository = roomConfigRepository;
         this.roomPlayerRepository = roomPlayerRepository;
         this.roundEventLogRepository = roundEventLogRepository;
     }
@@ -145,6 +150,8 @@ public class WebSocketHandler extends TextWebSocketHandler {
         }
 
         List<RoomPlayer> players = roomPlayerRepository.findByRoom_IdOrderByPlayerOrderAsc(roomId);
+        BoostContext boostContext = resolveBoostContext(room);
+        RoomChanceSummary chanceSummary = calculateRoomChanceSummary(room.getMaxPlayers(), boostContext);
         List<Integer> occupiedSeats = players.stream()
                 .map(RoomPlayer::getPlayerOrder)
                 .filter(java.util.Objects::nonNull)
@@ -166,7 +173,12 @@ public class WebSocketHandler extends TextWebSocketHandler {
         roomState.put("currentPlayers", room.getCurrentPlayers());
         roomState.put("maxPlayers", room.getMaxPlayers());
         roomState.put("entryCost", room.getEntryCost());
-        roomState.put("prizeFund", room.getPrizeFund());
+        roomState.put("prizeFund", resolveRoomPrizeFund(room));
+        roomState.put("boostPrice", boostContext.boostPrice());
+        roomState.put("boostWeight", boostContext.boostWeight());
+        roomState.put("currentChancePercent", chanceSummary.currentChancePercent());
+        roomState.put("chanceWithBoostPercent", chanceSummary.chanceWithBoostPercent());
+        roomState.put("boostAbsoluteGainPercent", chanceSummary.boostAbsoluteGainPercent());
         roomState.put("timerSeconds", room.getTimerSeconds());
         roomState.put("remainingSeconds", remainingSeconds(room));
         roomState.put("occupiedSeats", occupiedSeats);
@@ -220,6 +232,77 @@ public class WebSocketHandler extends TextWebSocketHandler {
             return 0L;
         }
         return (long) Math.ceil(millisLeft / 1000.0d);
+    }
+
+    private double round4(double value) {
+        return Math.round(value * 10_000.0d) / 10_000.0d;
+    }
+
+    private RoomChanceSummary calculateRoomChanceSummary(Integer maxPlayers, BoostContext boostContext) {
+        if (maxPlayers == null || maxPlayers <= 0) {
+            return new RoomChanceSummary(0.0d, 0.0d, 0.0d);
+        }
+        int baseWeight = Math.max(1, boostContext.baseWeight());
+        int boostWeight = Math.max(0, boostContext.boostWeight());
+        double currentChance = 100.0d / (double) maxPlayers;
+        double chanceWithBoost;
+        if (!boostContext.boostAllowed()) {
+            chanceWithBoost = currentChance;
+        } else {
+            int denominator = (baseWeight * (maxPlayers - 1)) + (baseWeight + boostWeight);
+            chanceWithBoost = denominator <= 0
+                    ? 0.0d
+                    : ((double) (baseWeight + boostWeight) * 100.0d / (double) denominator);
+        }
+        double absoluteGain = chanceWithBoost - currentChance;
+        return new RoomChanceSummary(
+                round4(currentChance),
+                round4(chanceWithBoost),
+                round4(absoluteGain)
+        );
+    }
+
+    private long resolveRoomPrizeFund(Room room) {
+        if (room.getEntryCost() == null || room.getMaxPlayers() == null) {
+            return 0L;
+        }
+        int winnerPercent = resolveWinnerPercent(room);
+        long totalPool = (long) room.getEntryCost() * room.getMaxPlayers();
+        return Math.floorDiv(totalPool * winnerPercent, 100);
+    }
+
+    private int resolveWinnerPercent(Room room) {
+        if (room.getTemplateId() == null) {
+            return 100;
+        }
+        return roomConfigRepository.findById(room.getTemplateId())
+                .map(RoomConfig::getWinnerPercent)
+                .filter(value -> value != null && value > 0)
+                .orElse(100);
+    }
+
+    private BoostContext resolveBoostContext(Room room) {
+        int boostWeight = 10;
+        Integer boostPrice = null;
+        boolean boostAllowed = Boolean.TRUE.equals(room.getBoostAllowed());
+
+        if (room.getTemplateId() != null) {
+            RoomConfig template = roomConfigRepository.findById(room.getTemplateId()).orElse(null);
+            if (template != null) {
+                boostWeight = template.getBonusWeight() == null ? 10 : template.getBonusWeight();
+                boostPrice = template.getBonusPrice();
+                boostAllowed = Boolean.TRUE.equals(template.getBonusEnabled()) && boostWeight > 0;
+            }
+        }
+        return new BoostContext(boostAllowed, 100, Math.max(0, boostWeight), boostPrice);
+    }
+
+    private record BoostContext(boolean boostAllowed, int baseWeight, int boostWeight, Integer boostPrice) {
+    }
+
+    private record RoomChanceSummary(double currentChancePercent,
+                                     double chanceWithBoostPercent,
+                                     double boostAbsoluteGainPercent) {
     }
 
     private void send(UUID roomId, EventType eventType, Object payload) {

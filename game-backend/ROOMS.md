@@ -31,6 +31,12 @@
 2. Для активированных бустов резервации буста также коммитятся (`COMMITTED`).
 3. Победителю начисляется выплата `winnerPayout = totalPool * winnerPercent / 100` транзакцией `WIN`.
 
+`prizeFund` в API и WebSocket рассчитывается фиксированно по шаблону:
+
+`prizeFund = entryCost * maxPlayers * winnerPercent / 100`
+
+Он не накапливается по мере входа игроков.
+
 При отмене комнаты (`CANCELLED`):
 
 1. Резервации entry-cost и бустов релизятся (`RELEASED`).
@@ -152,7 +158,12 @@
   "currentPlayers": 2,
   "maxPlayers": 4,
   "entryCost": 100,
-  "prizeFund": 200,
+  "prizeFund": 320,
+  "boostPrice": 50,
+  "boostWeight": 10,
+  "currentChancePercent": 25.0,
+  "chanceWithBoostPercent": 26.8293,
+  "boostAbsoluteGainPercent": 1.8293,
   "timerSeconds": 60,
   "remainingSeconds": 41,
   "createdAt": "2026-04-21T13:10:00.000",
@@ -186,11 +197,36 @@ WebSocket `ROOM_STATE`:
     "shortId": "042731",
     "status": "WAITING",
     "currentPlayers": 2,
-    "maxPlayers": 4
+    "maxPlayers": 4,
+    "entryCost": 100,
+    "prizeFund": 320,
+    "boostPrice": 50,
+    "boostWeight": 10,
+    "currentChancePercent": 25.0,
+    "chanceWithBoostPercent": 26.8293,
+    "boostAbsoluteGainPercent": 1.8293,
+    "timerSeconds": 60,
+    "remainingSeconds": 41,
+    "occupiedSeats": [1, 3],
+    "freeSeats": [2, 4],
+    "players": [
+      {
+        "username": "denis",
+        "playerOrder": 1,
+        "boostUsed": false
+      }
+    ]
   },
   "sentAt": "2026-04-21T13:10:20.520Z"
 }
 ```
+
+Формулы по шансу буста (на уровне комнаты):
+
+- `currentChancePercent = 100 / maxPlayers`
+- `chanceWithBoostPercent = (baseWeight + boostWeight) / (baseWeight * (maxPlayers - 1) + (baseWeight + boostWeight)) * 100`
+- `boostAbsoluteGainPercent = chanceWithBoostPercent - currentChancePercent`
+- `baseWeight = 100`
 
 ### Создать комнату
 
@@ -261,6 +297,7 @@ WebSocket `ROOM_STATE`:
   "maxPlayers": 2,
   "entryCost": 100,
   "boostAllowed": true,
+  "boostPrice": 50,
   "seats": [1]
 }
 ```
@@ -272,7 +309,54 @@ WebSocket `ROOM_STATE`:
   "maxPlayers": 2,
   "entryCost": 100,
   "boostAllowed": true,
+  "boostPrice": 50,
   "seatsCount": 1
+}
+```
+
+Что принимает (`JoinByTemplateRequest`):
+
+- `templateId` (UUID, optional) — если передан, поиск/создание только по этому шаблону
+- `maxPlayers` (required)
+- `entryCost` (required)
+- `boostAllowed` (required)
+- `boostPrice` (optional) — если передан, подбор выполняется также по цене буста
+- `seats` (optional) — конкретные места, например `[1,3]`
+- `seatsCount` (optional) — количество случайных мест
+
+Важно: нужно передать **либо** `seats`, **либо** `seatsCount`.
+
+Что возвращает (`RoomResponse`):
+
+- `id`, `shortId`, `templateId`
+- `maxPlayers`, `entryCost`, `prizeFund`
+- `boostAllowed`, `boostPrice`, `boostWeight`
+- `currentChancePercent`, `chanceWithBoostPercent`, `boostAbsoluteGainPercent`
+- `timerSeconds`, `status`, `currentPlayers`, `botCount`
+- `createdAt`, `remainingSeconds`
+
+Пример ответа:
+
+```json
+{
+  "id": "67169950-88a5-4d7d-83e2-569ff1514971",
+  "shortId": "042731",
+  "templateId": "b7be5840-71fb-4c8b-9250-e5c399a4cc76",
+  "maxPlayers": 4,
+  "entryCost": 100,
+  "prizeFund": 320,
+  "boostAllowed": true,
+  "boostPrice": 50,
+  "boostWeight": 10,
+  "currentChancePercent": 25.0,
+  "chanceWithBoostPercent": 26.8293,
+  "boostAbsoluteGainPercent": 1.8293,
+  "timerSeconds": 60,
+  "status": "WAITING",
+  "currentPlayers": 2,
+  "botCount": 0,
+  "createdAt": "2026-04-22T15:10:00.000",
+  "remainingSeconds": 41
 }
 ```
 
