@@ -63,7 +63,7 @@ public class RoomTemplateController {
 
     @GetMapping
     public List<RoomTemplateResponse> getAllTemplates() {
-        RoleGuard.requireAny(UserRole.EXPERT, UserRole.ADMIN);
+        RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
         return roomConfigService.getAllTemplates();
     }
 }
