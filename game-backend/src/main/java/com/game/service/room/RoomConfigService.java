@@ -121,9 +121,19 @@ public class RoomConfigService {
                 .bonusWeight(roomConfig.getBonusWeight())
                 .maxPlayers(roomConfig.getMaxPlayers())
                 .winnerPercent(roomConfig.getWinnerPercent())
+                .prizeFund(calculatePrizeFund(roomConfig))
                 .gameMechanic(roomConfig.getGameMechanic())
                 .createdAt(roomConfig.getCreatedAt())
                 .updatedAt(roomConfig.getUpdatedAt())
                 .build();
+    }
+
+    private Integer calculatePrizeFund(RoomConfig roomConfig) {
+        if (roomConfig.getEntryCost() == null || roomConfig.getMaxPlayers() == null || roomConfig.getWinnerPercent() == null) {
+            return 0;
+        }
+        long totalPool = (long) roomConfig.getEntryCost() * roomConfig.getMaxPlayers();
+        long prizeFund = Math.floorDiv(totalPool * roomConfig.getWinnerPercent(), 100);
+        return Math.toIntExact(prizeFund);
     }
 }
