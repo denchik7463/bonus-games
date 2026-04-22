@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WS Debug</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background:#0f172a; color:#e2e8f0; }
+    .row { display:grid; grid-template-columns: 1fr 1fr 2fr auto auto auto; gap:8px; margin-bottom:12px; }
+    input, button { padding:8px; border-radius:6px; border:1px solid #334155; background:#111827; color:#e2e8f0; }
+    button { cursor:pointer; }
+    .ok { color:#22c55e; }
+    .bad { color:#ef4444; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    pre { margin:0; padding:10px; border:1px solid #334155; border-radius:8px; background:#111827; max-height:70vh; overflow:auto; }
+    h3 { margin:8px 0; }
+  </style>
+</head>
+<body>
+  <h2>WebSocket Debug Page</h2>
+
+  <div class="row">
+    <input id="baseUrl" value="http://localhost:8081" placeholder="Base URL" />
+    <input id="roomId" placeholder="Room UUID" />
+    <input id="token" placeholder="Bearer token" />
+    <button onclick="connectWs()">Connect</button>
+    <button onclick="disconnectWs()">Disconnect</button>
+    <button onclick="clearLogs()">Clear</button>
+  </div>
+
+  <div id="status" class="bad">WS: disconnected</div>
+
+  <div class="grid" style="margin-top:12px;">
+    <div>
+      <h3>Raw Messages</h3>
+      <pre id="raw"></pre>
+    </div>
+    <div>
+      <h3>Last Parsed JSON</h3>
+      <pre id="parsed">{}</pre>
+    </div>
+  </div>
+
+  <script>
+    let ws = null;
+
+    function wsUrl() {
+      const base = document.getElementById('baseUrl').value.trim().replace(/\/$/, '');
+      const roomId = encodeURIComponent(document.getElementById('roomId').value.trim());
+      const token = encodeURIComponent(document.getElementById('token').value.trim());
+      const wsBase = base.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
+      return `${wsBase}/ws/rooms?roomId=${roomId}&token=${token}`;
+    }
+
+    function setStatus(text, ok) {
+      const el = document.getElementById('status');
+      el.textContent = text;
+      el.className = ok ? 'ok' : 'bad';
+    }
+
+    function appendRaw(line) {
+      const el = document.getElementById('raw');
+      el.textContent += line + '\n';
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function connectWs() {
+      disconnectWs();
+
+      const roomId = document.getElementById('roomId').value.trim();
+      const token = document.getElementById('token').value.trim();
+      if (!roomId || !token) {
+        setStatus('WS: roomId и token обязательны', false);
+        return;
+      }
+
+      const url = wsUrl();
+      appendRaw(`[CONNECT] ${url}`);
+      ws = new WebSocket(url);
+
+      ws.onopen = () => setStatus('WS: connected', true);
+
+      ws.onclose = (e) => {
+        setStatus(`WS: disconnected (code ${e.code})`, false);
+        appendRaw(`[CLOSE] code=${e.code} reason=${e.reason || '-'}`);
+      };
+
+      ws.onerror = () => {
+        setStatus('WS: error', false);
+        appendRaw('[ERROR] websocket error');
+      };
+
+      ws.onmessage = (event) => {
+        appendRaw(event.data);
+        try {
+          const obj = JSON.parse(event.data);
+          document.getElementById('parsed').textContent = JSON.stringify(obj, null, 2);
+        } catch {
+          document.getElementById('parsed').textContent = '{ "parse": "failed" }';
+        }
+      };
+    }
+
+    function disconnectWs() {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        ws.close();
+      }
+      ws = null;
+      setStatus('WS: disconnected', false);
+    }
+
+    function clearLogs() {
+      document.getElementById('raw').textContent = '';
+      document.getElementById('parsed').textContent = '{}';
+    }
+  </script>
+</body>
+</html>

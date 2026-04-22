@@ -12,6 +12,7 @@ import com.game.repository.RoundEventLogRepository;
 import com.game.realtime.dto.EventType;
 import com.game.realtime.dto.WsEvent;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -22,6 +23,8 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.Set;
@@ -36,6 +39,7 @@ public class WebSocketHandler extends TextWebSocketHandler {
 
     private static final String ATTR_ROOM_ID = "roomId";
     private static final String ATTR_USER_ID = "userId";
+    private static final Set<String> TIMER_ACTIVE_STATUSES = Set.of("WAITING", "FULL");
 
     private final AuthService authService;
     private final ObjectMapper objectMapper;
@@ -106,41 +110,116 @@ public class WebSocketHandler extends TextWebSocketHandler {
         send(roomId, EventType.ROOM_EVENTS, payload);
     }
 
-    private void pushInitialSnapshot(UUID roomId) {
-        Room room = roomRepository.findById(roomId).orElse(null);
-        if (room != null) {
-            List<RoomPlayer> players = roomPlayerRepository.findByRoom_IdOrderByPlayerOrderAsc(roomId);
-            Map<String, Object> roomState = new LinkedHashMap<>();
-            roomState.put("roomId", room.getId());
-            roomState.put("shortId", room.getShortId());
-            roomState.put("status", room.getStatus());
-            roomState.put("currentPlayers", room.getCurrentPlayers());
-            roomState.put("maxPlayers", room.getMaxPlayers());
-            roomState.put("entryCost", room.getEntryCost());
-            roomState.put("prizeFund", room.getPrizeFund());
-            roomState.put("timerSeconds", room.getTimerSeconds());
-            roomState.put("createdAt", room.getCreatedAt());
-            roomState.put("firstPlayerJoinedAt", room.getFirstPlayerJoinedAt());
-            roomState.put("startedAt", room.getStartedAt());
-            roomState.put("finishedAt", room.getFinishedAt());
-            roomState.put("players", players.stream().map(player -> {
-                Map<String, Object> p = new LinkedHashMap<>();
-                p.put("userId", player.getUserId());
-                p.put("username", player.getUsername());
-                p.put("walletReservationId", player.getWalletReservationId());
-                p.put("boostUsed", player.getBoostUsed());
-                p.put("roundId", player.getRoundId());
-                p.put("playerOrder", player.getPlayerOrder());
-                p.put("winner", player.getWinner());
-                p.put("status", player.getStatus());
-                p.put("joinTime", player.getJoinTime());
-                return p;
-            }).toList());
-            sendRoomState(roomId, roomState);
+    @Scheduled(fixedDelay = 1000)
+    public void pushRealtimeRoomStates() {
+        if (roomSessions.isEmpty()) {
+            return;
         }
+        for (UUID roomId : List.copyOf(roomSessions.keySet())) {
+            Room room = roomRepository.findById(roomId).orElse(null);
+            if (room == null || !isTimerTickRequired(room)) {
+                continue;
+            }
+            pushRoomStateSnapshot(roomId, room);
+        }
+    }
+
+    private void pushInitialSnapshot(UUID roomId) {
+        pushRoomStateSnapshot(roomId, null);
 
         List<RoundEventLog> events = roundEventLogRepository.findByRoomIdOrderByCreatedAtAsc(roomId);
         sendRoomEvents(roomId, events);
+    }
+
+    private void pushRoomStateSnapshot(UUID roomId, Room room) {
+        Map<String, Object> roomState = buildRoomStatePayload(roomId, room);
+        if (roomState != null) {
+            sendRoomState(roomId, roomState);
+        }
+    }
+
+    private Map<String, Object> buildRoomStatePayload(UUID roomId, Room roomSnapshot) {
+        Room room = roomSnapshot != null ? roomSnapshot : roomRepository.findById(roomId).orElse(null);
+        if (room == null) {
+            return null;
+        }
+
+        List<RoomPlayer> players = roomPlayerRepository.findByRoom_IdOrderByPlayerOrderAsc(roomId);
+        List<Integer> occupiedSeats = players.stream()
+                .map(RoomPlayer::getPlayerOrder)
+                .filter(java.util.Objects::nonNull)
+                .sorted()
+                .toList();
+
+        int maxPlayers = room.getMaxPlayers() == null ? 0 : room.getMaxPlayers();
+        List<Integer> freeSeats = new java.util.ArrayList<>();
+        for (int seat = 1; seat <= maxPlayers; seat++) {
+            if (!occupiedSeats.contains(seat)) {
+                freeSeats.add(seat);
+            }
+        }
+
+        Map<String, Object> roomState = new LinkedHashMap<>();
+        roomState.put("roomId", room.getId());
+        roomState.put("shortId", room.getShortId());
+        roomState.put("status", room.getStatus());
+        roomState.put("currentPlayers", room.getCurrentPlayers());
+        roomState.put("maxPlayers", room.getMaxPlayers());
+        roomState.put("entryCost", room.getEntryCost());
+        roomState.put("prizeFund", room.getPrizeFund());
+        roomState.put("timerSeconds", room.getTimerSeconds());
+        roomState.put("remainingSeconds", remainingSeconds(room));
+        roomState.put("occupiedSeats", occupiedSeats);
+        roomState.put("freeSeats", freeSeats);
+        roomState.put("createdAt", room.getCreatedAt());
+        roomState.put("firstPlayerJoinedAt", room.getFirstPlayerJoinedAt());
+        roomState.put("startedAt", room.getStartedAt());
+        roomState.put("finishedAt", room.getFinishedAt());
+        roomState.put("players", players.stream().map(player -> {
+            Map<String, Object> p = new LinkedHashMap<>();
+            p.put("userId", player.getUserId());
+            p.put("username", player.getUsername());
+            p.put("walletReservationId", player.getWalletReservationId());
+            p.put("boostUsed", player.getBoostUsed());
+            p.put("boostReservationId", player.getBoostReservationId());
+            p.put("bot", player.getBot());
+            p.put("roundId", player.getRoundId());
+            p.put("playerOrder", player.getPlayerOrder());
+            p.put("winner", player.getWinner());
+            p.put("status", player.getStatus());
+            p.put("joinTime", player.getJoinTime());
+            return p;
+        }).toList());
+        return roomState;
+    }
+
+    private boolean isTimerTickRequired(Room room) {
+        if (room.getFirstPlayerJoinedAt() == null) {
+            return false;
+        }
+        if (room.getTimerSeconds() == null || room.getTimerSeconds() <= 0) {
+            return false;
+        }
+        if (!TIMER_ACTIVE_STATUSES.contains(room.getStatus())) {
+            return false;
+        }
+        Long remaining = remainingSeconds(room);
+        return remaining != null && remaining > 0;
+    }
+
+    private Long remainingSeconds(Room room) {
+        if (room.getFirstPlayerJoinedAt() == null) {
+            return null;
+        }
+        if (room.getTimerSeconds() == null || room.getTimerSeconds() <= 0) {
+            return 0L;
+        }
+        LocalDateTime timeoutAt = room.getFirstPlayerJoinedAt().plusSeconds(room.getTimerSeconds());
+        long millisLeft = Duration.between(LocalDateTime.now(), timeoutAt).toMillis();
+        if (millisLeft <= 0) {
+            return 0L;
+        }
+        return (long) Math.ceil(millisLeft / 1000.0d);
     }
 
     private void send(UUID roomId, EventType eventType, Object payload) {
