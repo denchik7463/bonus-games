@@ -1,6 +1,5 @@
 package com.game.service.room;
 
-import com.game.dto.BalanceResponse;
 import com.game.dto.ReservationResponse;
 import com.game.dto.SelectWinnerRequest;
 import com.game.dto.SelectWinnerResponse;
@@ -33,15 +32,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.PageRequest;
+import com.game.repository.WalletReservationRepository;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -64,6 +62,7 @@ public class RoomService {
     private final GameResultRepository gameResultRepository;
     private final RoomEventPublisher roomEventPublisher;
     private final WalletService walletService;
+    private final WalletReservationRepository walletReservationRepository;
     private final WinnerService winnerService;
     private final RoundEventLogService roundEventLogService;
 
@@ -442,24 +441,19 @@ public class RoomService {
         SelectWinnerResponse winner = winnerService.selectWinner(winnerRequest);
         int winnerIndex = winner.getWinnerIndex();
         RoomPlayer winnerPlayer = players.get(winnerIndex);
-        Map<UUID, Long> balanceBeforeByUserId = new HashMap<>();
 
         List<FinishRoomResponse.RoomPlayerSettlement> settlements = new ArrayList<>();
         for (int i = 0; i < players.size(); i++) {
             RoomPlayer p = players.get(i);
             boolean isWinner = i == winnerIndex;
-            if (isBot(p)) {
-                balanceBeforeByUserId.put(p.getUserId(), 0L);
-            } else {
-                BalanceResponse beforeBalance = walletService.getBalanceByUserId(p.getUserId());
-                balanceBeforeByUserId.put(p.getUserId(), beforeBalance.getTotal());
-
+            if (!isBot(p)) {
                 String commitOperation = "room-commit:" + room.getId() + ":" + p.getWalletReservationId();
                 walletService.commitSystem(
                         p.getWalletReservationId(),
                         commitOperation,
                         "Commit room entry for room " + room.getId()
                 );
+
                 if (p.getBoostReservationId() != null) {
                     walletService.commitSystem(
                             p.getBoostReservationId(),
@@ -519,7 +513,6 @@ public class RoomService {
                 players,
                 winner,
                 winnerIndex,
-                balanceBeforeByUserId,
                 winnerPayout
         );
 
@@ -694,6 +687,15 @@ public class RoomService {
                 .toList();
     }
 
+    private long resolveBoostCostForHistory(RoomPlayer player) {
+        if (player.getBoostReservationId() == null) {
+            return 0L;
+        }
+
+        return walletReservationRepository.findById(player.getBoostReservationId())
+                .map(reservation -> reservation.getAmount())
+                .orElse(0L);
+    }
 
     private Room getLastPlayedRoom(User user) {
         return roomPlayerRepository.findByUserIdOrderByJoinTimeDescIdDesc(user.getId())
@@ -870,7 +872,6 @@ public class RoomService {
                                       List<RoomPlayer> players,
                                       SelectWinnerResponse winner,
                                       int winnerIndex,
-                                      Map<UUID, Long> balanceBeforeByUserId,
                                       long winnerPayout) {
         GameResult result = GameResult.builder()
                 .id(UUID.randomUUID())
@@ -895,8 +896,11 @@ public class RoomService {
 
         for (int i = 0; i < players.size(); i++) {
             RoomPlayer player = players.get(i);
-            long before = balanceBeforeByUserId.getOrDefault(player.getUserId(), 0L);
             long after = isBot(player) ? 0L : walletService.getBalanceByUserId(player.getUserId()).getTotal();
+            long boostCost = isBot(player) ? 0L : resolveBoostCostForHistory(player);
+            long payout = (!isBot(player) && i == winnerIndex) ? winnerPayout : 0L;
+            long delta = payout - room.getEntryCost().longValue() - boostCost;
+            long before = isBot(player) ? 0L : after - delta;
 
             int finalWeight = 0;
             if (winner.getPlayers() != null && i < winner.getPlayers().size()) {
@@ -912,7 +916,7 @@ public class RoomService {
                     .finalWeight(finalWeight)
                     .balanceBefore(before)
                     .balanceAfter(after)
-                    .balanceDelta(after - before)
+                    .balanceDelta(delta)
                     .status(player.getStatus())
                     .winner(i == winnerIndex)
                     .build();
