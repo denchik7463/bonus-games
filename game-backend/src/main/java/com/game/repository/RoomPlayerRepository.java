@@ -31,6 +31,16 @@ public interface RoomPlayerRepository extends JpaRepository<RoomPlayer, Long> {
             """)
     java.util.Optional<RoomPlayer> findByRoomIdAndUserIdAndPlayerOrderForUpdate(UUID roomId, UUID userId, Integer playerOrder);
 
+    @Query("""
+        select rp
+        from RoomPlayer rp
+        join fetch rp.room r
+        where rp.userId = :userId
+          and r.status in :statuses
+        order by rp.joinTime desc, rp.id desc
+        """)
+    List<RoomPlayer> findActiveByUserIdOrderByJoinTimeDesc(UUID userId, List<String> statuses);
+
     List<RoomPlayer> findByRoom_IdOrderByPlayerOrderAsc(UUID roomId);
 
     List<RoomPlayer> findByJoinTimeBetweenOrderByJoinTimeAsc(LocalDateTime start, LocalDateTime end);

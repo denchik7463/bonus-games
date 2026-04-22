@@ -119,6 +119,21 @@ public class RoomController {
         return roomService.getWaitingRooms();
     }
 
+    @GetMapping("/recommendations/similar")
+    public List<RoomResponse> getMySimilarRooms(@RequestParam(required = false) Integer priceDelta,
+                                                @RequestParam(required = false) Integer limit) {
+        RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
+        User user = UserContext.getRequired();
+        return roomService.getMySimilarRooms(user, priceDelta, limit);
+    }
+
+    @GetMapping("/recommendations/riskier")
+    public RoomResponse getMyRiskierRoom() {
+        RoleGuard.requireAny(UserRole.USER, UserRole.EXPERT, UserRole.ADMIN);
+        User user = UserContext.getRequired();
+        return roomService.getMyRiskierRoom(user);
+    }
+
     @GetMapping("/filter")
     public List<RoomResponse> filterRooms(@RequestParam(required = false) Integer maxPlayers,
                                           @RequestParam(required = false) Integer entryCost,

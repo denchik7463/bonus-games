@@ -227,6 +227,48 @@ public class RoomService {
     }
 
     @Transactional(readOnly = true)
+    public List<RoomResponse> getMySimilarRooms(User user, Integer priceDelta, Integer limit) {
+        int normalizedPriceDelta = normalizePriceDelta(priceDelta);
+        int normalizedLimit = normalizeRecommendationLimit(limit);
+
+        List<RoomPlayer> activeParticipations = getActiveParticipations(user);
+        Room referenceRoom = activeParticipations.get(0).getRoom();
+        Set<UUID> excludedRoomIds = collectParticipatingRoomIds(activeParticipations);
+
+        int minEntryCost = Math.max(0, referenceRoom.getEntryCost() - normalizedPriceDelta);
+        int maxEntryCost = referenceRoom.getEntryCost() + normalizedPriceDelta;
+
+        return roomRepository.findSimilarWaitingRooms(
+                        referenceRoom.getEntryCost(),
+                        minEntryCost,
+                        maxEntryCost,
+                        PageRequest.of(0, Math.max(normalizedLimit * 3, 20))
+                ).stream()
+                .filter(room -> !excludedRoomIds.contains(room.getId()))
+                .filter(this::hasMoreThanFiveSecondsLeft)
+                .limit(normalizedLimit)
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public RoomResponse getMyRiskierRoom(User user) {
+        List<RoomPlayer> activeParticipations = getActiveParticipations(user);
+        Room referenceRoom = activeParticipations.get(0).getRoom();
+        Set<UUID> excludedRoomIds = collectParticipatingRoomIds(activeParticipations);
+
+        return roomRepository.findRiskierWaitingRooms(
+                        referenceRoom.getEntryCost(),
+                        PageRequest.of(0, 50)
+                ).stream()
+                .filter(room -> !excludedRoomIds.contains(room.getId()))
+                .filter(this::hasMoreThanFiveSecondsLeft)
+                .findFirst()
+                .map(this::toResponse)
+                .orElseThrow(() -> new NotFoundException("No riskier room available for current user"));
+    }
+
+    @Transactional(readOnly = true)
     public RoomStateResponse getRoomState(UUID roomId) {
         Room room = findRoom(roomId);
         List<RoomPlayerResponse> players = roomPlayerRepository.findByRoom_IdOrderByPlayerOrderAsc(roomId)
@@ -651,6 +693,47 @@ public class RoomService {
                         && (boostAllowed == null || room.getBoostAllowed().equals(boostAllowed)))
                 .map(this::toResponse)
                 .toList();
+    }
+
+    private List<RoomPlayer> getActiveParticipations(User user) {
+        List<RoomPlayer> participations = roomPlayerRepository.findActiveByUserIdOrderByJoinTimeDesc(
+                user.getId(),
+                ACTIVE_STATUSES
+        );
+
+        if (participations.isEmpty()) {
+            throw new NotFoundException("User has no active rooms");
+        }
+
+        return participations;
+    }
+
+    private Set<UUID> collectParticipatingRoomIds(List<RoomPlayer> participations) {
+        Set<UUID> roomIds = new HashSet<>();
+        for (RoomPlayer participation : participations) {
+            roomIds.add(participation.getRoom().getId());
+        }
+        return roomIds;
+    }
+
+    private int normalizePriceDelta(Integer priceDelta) {
+        if (priceDelta == null) {
+            return 200;
+        }
+        if (priceDelta < 50 || priceDelta > 5000) {
+            throw new IllegalArgumentException("priceDelta must be between 50 and 5000");
+        }
+        return priceDelta;
+    }
+
+    private int normalizeRecommendationLimit(Integer limit) {
+        if (limit == null) {
+            return 10;
+        }
+        if (limit < 1 || limit > 20) {
+            throw new IllegalArgumentException("limit must be between 1 and 20");
+        }
+        return limit;
     }
 
     private Room findRoom(UUID roomId) {

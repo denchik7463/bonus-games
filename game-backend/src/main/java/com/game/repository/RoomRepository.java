@@ -35,4 +35,27 @@ public interface RoomRepository extends JpaRepository<Room, UUID> {
             """)
     List<Room> findJoinableWaitingRoomsByTemplateIdForUpdate(UUID templateId, Pageable pageable);
 
+    @Query("""
+        select r
+        from Room r
+        where r.status = 'WAITING'
+          and r.currentPlayers < r.maxPlayers
+          and r.entryCost between :minEntryCost and :maxEntryCost
+        order by abs(r.entryCost - :targetEntryCost) asc, r.entryCost asc, r.createdAt asc
+        """)
+    List<Room> findSimilarWaitingRooms(Integer targetEntryCost,
+                                       Integer minEntryCost,
+                                       Integer maxEntryCost,
+                                       Pageable pageable);
+
+    @Query("""
+        select r
+        from Room r
+        where r.status = 'WAITING'
+          and r.currentPlayers < r.maxPlayers
+          and r.entryCost > :entryCost
+        order by r.entryCost asc, r.createdAt asc
+        """)
+    List<Room> findRiskierWaitingRooms(Integer entryCost, Pageable pageable);
+
 }
