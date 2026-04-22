@@ -68,7 +68,12 @@ public class RoomConfigService {
     public void deleteTemplate(UUID id) {
         RoomConfig roomConfig = roomConfigRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Room template not found: " + id));
-        roomConfigRepository.delete(roomConfig);
+        if (!Boolean.TRUE.equals(roomConfig.getActive())) {
+            return;
+        }
+        roomConfig.setActive(false);
+        roomConfig.setUpdatedAt(LocalDateTime.now());
+        roomConfigRepository.save(roomConfig);
     }
 
     public RoomTemplateResponse getTemplateById(UUID id) {
@@ -80,6 +85,7 @@ public class RoomConfigService {
     public List<RoomTemplateResponse> getAllTemplates() {
         return roomConfigRepository.findAllByOrderByCreatedAtDesc()
                 .stream()
+                .filter(roomConfig -> Boolean.TRUE.equals(roomConfig.getActive()))
                 .map(this::toResponse)
                 .toList();
     }

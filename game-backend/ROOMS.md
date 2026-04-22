@@ -546,6 +546,15 @@ TEMPLATE_ID=$(curl -s -X POST "http://localhost:8081/api/room-templates" \
 echo "$TEMPLATE_ID"
 ```
 
+### 3.1) Деактивировать шаблон комнаты
+
+`DELETE /api/room-templates/{id}` выполняет мягкое удаление: шаблон не удаляется физически, а переводится в `active=false`.
+
+```bash
+curl -i -X DELETE "http://localhost:8081/api/room-templates/$TEMPLATE_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
 ### 4) Создать комнату по `templateId`
 
 ```bash
