@@ -231,9 +231,7 @@ public class RoomService {
         int normalizedPriceDelta = normalizePriceDelta(priceDelta);
         int normalizedLimit = normalizeRecommendationLimit(limit);
 
-        List<RoomPlayer> activeParticipations = getActiveParticipations(user);
-        Room referenceRoom = activeParticipations.get(0).getRoom();
-        Set<UUID> excludedRoomIds = collectParticipatingRoomIds(activeParticipations);
+        Room referenceRoom = getLastPlayedRoom(user);
 
         int minEntryCost = Math.max(0, referenceRoom.getEntryCost() - normalizedPriceDelta);
         int maxEntryCost = referenceRoom.getEntryCost() + normalizedPriceDelta;
@@ -244,7 +242,7 @@ public class RoomService {
                         maxEntryCost,
                         PageRequest.of(0, Math.max(normalizedLimit * 3, 20))
                 ).stream()
-                .filter(room -> !excludedRoomIds.contains(room.getId()))
+                .filter(room -> !room.getId().equals(referenceRoom.getId()))
                 .filter(this::hasMoreThanFiveSecondsLeft)
                 .limit(normalizedLimit)
                 .map(this::toResponse)
@@ -253,15 +251,13 @@ public class RoomService {
 
     @Transactional(readOnly = true)
     public RoomResponse getMyRiskierRoom(User user) {
-        List<RoomPlayer> activeParticipations = getActiveParticipations(user);
-        Room referenceRoom = activeParticipations.get(0).getRoom();
-        Set<UUID> excludedRoomIds = collectParticipatingRoomIds(activeParticipations);
+        Room referenceRoom = getLastPlayedRoom(user);
 
         return roomRepository.findRiskierWaitingRooms(
                         referenceRoom.getEntryCost(),
                         PageRequest.of(0, 50)
                 ).stream()
-                .filter(room -> !excludedRoomIds.contains(room.getId()))
+                .filter(room -> !room.getId().equals(referenceRoom.getId()))
                 .filter(this::hasMoreThanFiveSecondsLeft)
                 .findFirst()
                 .map(this::toResponse)
@@ -695,25 +691,13 @@ public class RoomService {
                 .toList();
     }
 
-    private List<RoomPlayer> getActiveParticipations(User user) {
-        List<RoomPlayer> participations = roomPlayerRepository.findActiveByUserIdOrderByJoinTimeDesc(
-                user.getId(),
-                ACTIVE_STATUSES
-        );
 
-        if (participations.isEmpty()) {
-            throw new NotFoundException("User has no active rooms");
-        }
-
-        return participations;
-    }
-
-    private Set<UUID> collectParticipatingRoomIds(List<RoomPlayer> participations) {
-        Set<UUID> roomIds = new HashSet<>();
-        for (RoomPlayer participation : participations) {
-            roomIds.add(participation.getRoom().getId());
-        }
-        return roomIds;
+    private Room getLastPlayedRoom(User user) {
+        return roomPlayerRepository.findByUserIdOrderByJoinTimeDescIdDesc(user.getId())
+                .stream()
+                .findFirst()
+                .map(RoomPlayer::getRoom)
+                .orElseThrow(() -> new NotFoundException("User has no played rooms"));
     }
 
     private int normalizePriceDelta(Integer priceDelta) {

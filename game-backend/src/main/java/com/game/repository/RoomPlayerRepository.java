@@ -43,5 +43,7 @@ public interface RoomPlayerRepository extends JpaRepository<RoomPlayer, Long> {
 
     List<RoomPlayer> findByRoom_IdOrderByPlayerOrderAsc(UUID roomId);
 
+    List<RoomPlayer> findByUserIdOrderByJoinTimeDescIdDesc(UUID userId);
+
     List<RoomPlayer> findByJoinTimeBetweenOrderByJoinTimeAsc(LocalDateTime start, LocalDateTime end);
 }
