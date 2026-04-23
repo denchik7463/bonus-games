@@ -149,10 +149,13 @@ function mapRoundFinance(
   currentUser?: TestUser
 ) {
   if (!currentUser) {
-    const balanceChanges = mapBalanceChanges(entry);
+    const balanceChanges = mapAggregatedBalanceChanges(entry);
+    const winnerChange = winner
+      ? balanceChanges.find((change) => matchesBalanceChangeWinner(change, winner))
+      : undefined;
     return {
       balanceChanges,
-      userBalanceDelta: winnerBalanceDelta(entry.participants ?? [], winner?.id)
+      userBalanceDelta: winnerChange?.delta ?? winnerBalanceDelta(entry.participants ?? [], winner?.id)
     };
   }
 
@@ -228,7 +231,7 @@ function mapRoundFinance(
     ? backendDelta
     : derivedDelta;
   const currentNames = new Set([participantName, ...sourcePlayers.map((player) => player.username).filter((name): name is string => Boolean(name))]);
-  const otherChanges = mapBalanceChanges(entry).filter((change) => !currentNames.has(change.participantName));
+  const otherChanges = mapAggregatedBalanceChanges(entry).filter((change) => !currentNames.has(change.participantName));
 
   return {
     balanceChanges: userChanges.length ? [...userChanges, ...otherChanges] : otherChanges,
@@ -243,7 +246,7 @@ function mapBalanceChanges(entry: JournalEntryDto): RoundBalanceChange[] {
   const seats = buildUniqueSeats(players);
   const changes: RoundBalanceChange[] = players
     .filter((player) => typeof player.balanceDelta === "number" || (Boolean(player.bot) && isSourceWinner(player) && prizeFund > 0))
-    .map((player, index) => {
+    .map((player, index): RoundBalanceChange => {
       const botWinner = Boolean(player.bot) && isSourceWinner(player) && prizeFund > 0;
       const delta = botWinner ? (prizeFund - entryCost) : (player.balanceDelta ?? 0);
       return {
@@ -254,32 +257,148 @@ function mapBalanceChanges(entry: JournalEntryDto): RoundBalanceChange[] {
         reason: delta > 0 ? "prize" : "entry-reserve"
       };
     });
-  return aggregateNetBalanceChanges(changes);
+  return aggregateBalanceChanges(changes);
 }
 
-function aggregateNetBalanceChanges(changes: RoundBalanceChange[]) {
+function aggregateBalanceChanges(changes: RoundBalanceChange[]): RoundBalanceChange[] {
   const grouped = new Map<string, RoundBalanceChange>();
   for (const change of changes) {
-    const key = `${change.participantName}:${change.kind}`;
+    const key = `${change.participantName}:${change.kind}:${change.reason}`;
     const existing = grouped.get(key);
     if (!existing) {
-      grouped.set(key, { ...change });
+      grouped.set(key, change);
       continue;
     }
     grouped.set(key, {
       ...existing,
-      delta: existing.delta + change.delta
+      delta: change.reason === "prize"
+        ? Math.max(existing.delta, change.delta)
+        : existing.delta + change.delta
     });
   }
-  return Array.from(grouped.values()).map((change) => ({
-    ...change,
-    reason: change.delta > 0 ? "prize" : "entry-reserve"
-  }));
+  return Array.from(grouped.values());
+}
+
+function mapAggregatedBalanceChanges(entry: JournalEntryDto): RoundBalanceChange[] {
+  const players = entry.participants ?? [];
+  if (!players.length) return [];
+
+  const legacyChanges = mapBalanceChanges(entry);
+  const prizeFund = positiveNumber(entry.prizeFund) ?? 0;
+  const entryCost = positiveNumber(entry.entryCost) ?? 0;
+  const boostSeatCost = boostCostFromEntry(entry);
+  const seats = buildUniqueSeats(players);
+  const winnerSeat = normalizeRawWinnerSeat(entry.winnerPositionIndex, players);
+  const grouped = new Map<string, {
+    participantId: string;
+    participantName: string;
+    kind: Participant["kind"];
+    seatCount: number;
+    boostedSeatCount: number;
+    backendDelta?: number;
+    winner: boolean;
+  }>();
+
+  players.forEach((player, index) => {
+    const seatNumber = seats[index];
+    const key = groupedBalanceKey(player, seatNumber, index);
+    const existing = grouped.get(key);
+    const backendDelta = typeof player.balanceDelta === "number" && Number.isFinite(player.balanceDelta)
+      ? player.balanceDelta
+      : undefined;
+    const winner = matchesRawWinner(entry, player, seatNumber, winnerSeat);
+
+    if (!existing) {
+      grouped.set(key, {
+        participantId: player.playerExternalId ?? participantId(player, seatNumber, index),
+        participantName: player.username ?? `Player ${index + 1}`,
+        kind: player.bot ? "bot" : "user",
+        seatCount: 1,
+        boostedSeatCount: player.boostUsed ? 1 : 0,
+        backendDelta,
+        winner
+      });
+      return;
+    }
+
+    existing.seatCount += 1;
+    existing.boostedSeatCount += player.boostUsed ? 1 : 0;
+    existing.winner = existing.winner || winner;
+    if (backendDelta !== undefined) {
+      existing.backendDelta = (existing.backendDelta ?? 0) + backendDelta;
+    }
+  });
+
+  const aggregatedChanges = Array.from(grouped.values())
+    .map((participant): RoundBalanceChange | null => {
+      const derivedDelta = calculateGroupedBalanceDelta({
+        entryCost,
+        prizeFund,
+        boostSeatCost,
+        seatCount: participant.seatCount,
+        boostedSeatCount: participant.boostedSeatCount,
+        winner: participant.winner
+      });
+      const delta = resolveGroupedBalanceDelta({
+        backendDelta: participant.backendDelta,
+        derivedDelta,
+        entryCost,
+        prizeFund,
+        boostSeatCost,
+        seatCount: participant.seatCount,
+        boostedSeatCount: participant.boostedSeatCount
+      });
+      if (delta === 0) return null;
+
+      return {
+        participantId: participant.participantId,
+        participantName: participant.participantName,
+        kind: participant.kind,
+        delta,
+        reason: delta > 0 ? "prize" : "entry-reserve"
+      };
+    })
+    .filter((change): change is RoundBalanceChange => Boolean(change));
+
+  return aggregatedChanges.length ? aggregatedChanges : legacyChanges;
+}
+
+function calculateGroupedBalanceDelta(params: {
+  entryCost: number;
+  prizeFund: number;
+  boostSeatCost: number;
+  seatCount: number;
+  boostedSeatCount: number;
+  winner: boolean;
+}) {
+  const grossPrize = params.winner ? params.prizeFund : 0;
+  return grossPrize - (params.entryCost * params.seatCount) - (params.boostSeatCost * params.boostedSeatCount);
+}
+
+function resolveGroupedBalanceDelta(params: {
+  backendDelta?: number;
+  derivedDelta: number;
+  entryCost: number;
+  prizeFund: number;
+  boostSeatCost: number;
+  seatCount: number;
+  boostedSeatCount: number;
+}) {
+  const multiplePurchases = params.seatCount > 1 || params.boostedSeatCount > 1;
+  const canRecalculate = params.entryCost > 0 || params.prizeFund > 0 || params.boostSeatCost > 0;
+  if (multiplePurchases && canRecalculate) return params.derivedDelta;
+  if (params.backendDelta !== undefined && (params.backendDelta !== 0 || params.derivedDelta === 0)) return params.backendDelta;
+  return params.derivedDelta;
 }
 
 function winnerBalanceDelta(players: JournalParticipantDto[], winnerId?: string) {
   const winner = players.find((player) => player.playerExternalId === winnerId || player.winner);
   return winner?.balanceDelta ?? 0;
+}
+
+function matchesBalanceChangeWinner(change: RoundBalanceChange, winner: Participant) {
+  return change.participantName === winner.name
+    || (winner.userId ? change.participantId === winner.userId : false);
 }
 
 function findCurrentSourceParticipant(players: JournalParticipantDto[], currentUser: TestUser) {
@@ -361,6 +480,12 @@ function buildUniqueSeats(players: JournalParticipantDto[]) {
   });
 }
 
+function normalizeRawWinnerSeat(value: number | undefined, players: JournalParticipantDto[]) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  const zeroBased = players.some((player) => player.positionIndex === 0);
+  return Math.max(1, zeroBased ? value + 1 : value);
+}
+
 function normalizeWinnerSeat(value: number | undefined, participants: Participant[], sourcePlayers: JournalParticipantDto[]) {
   if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
   const sourceLooksZeroBased = sourcePlayers.some((player) => player.positionIndex === 0);
@@ -371,6 +496,24 @@ function normalizeWinnerSeat(value: number | undefined, participants: Participan
 
 function isSourceWinner(player: JournalParticipantDto) {
   return Boolean(player.winner) || player.status?.toUpperCase() === "WINNER";
+}
+
+function groupedBalanceKey(player: JournalParticipantDto, seatNumber: number, index: number) {
+  if (player.playerExternalId) return `id:${player.playerExternalId}`;
+  if (player.username) return `name:${normalizeUserName(player.username)}`;
+  return `seat:${participantId(player, seatNumber, index)}`;
+}
+
+function matchesRawWinner(
+  entry: JournalEntryDto,
+  player: JournalParticipantDto,
+  seatNumber: number,
+  winnerSeat: number | undefined
+) {
+  return isSourceWinner(player)
+    || (entry.winnerPlayerExternalId ? player.playerExternalId === entry.winnerPlayerExternalId : false)
+    || (entry.winnerPlayerName ? player.username === entry.winnerPlayerName : false)
+    || (winnerSeat !== undefined ? seatNumber === winnerSeat : false);
 }
 
 function matchesParticipantByExternalId(participant: Participant, externalId: string | undefined) {
