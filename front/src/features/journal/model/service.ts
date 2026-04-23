@@ -41,7 +41,8 @@ export const journalService = {
     try {
       return await this.getMyJournalEntry(id, user);
     } catch {
-      return this.getJournalEntry(id);
+      const entry = await getJournalEntry(id);
+      return journalEntryToRound(entry, user);
     }
   },
 

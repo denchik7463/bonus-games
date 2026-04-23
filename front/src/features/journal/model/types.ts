@@ -42,6 +42,7 @@ export type JournalEntryDto = {
   boostAbsoluteGainPercent?: number;
   chanceWithBoostPercent?: number;
   currentChancePercent?: number;
+  winnerPercent?: number;
   botCount?: number;
   roomStatus?: string;
   winnerPlayerExternalId?: string;

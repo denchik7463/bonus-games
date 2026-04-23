@@ -30,7 +30,7 @@ export function journalEntryToRound(entry: JournalEntryDto, currentUser?: TestUs
     boostCost: boostCostFromEntry(entry),
     boostImpact: boostImpactFromEntry(entry),
     boostAbsoluteGainPercent: normalizePercent(entry.boostAbsoluteGainPercent),
-    prizePoolPercent: 100,
+    prizePoolPercent: prizePoolPercentFromEntry(entry, participants.length),
     roomVolatility: 0,
     prizePool: entry.prizeFund ?? Math.max(0, (entry.entryCost ?? 0) * (entry.maxPlayers ?? participants.length)),
     participants,
@@ -44,11 +44,16 @@ export function journalEntryToRound(entry: JournalEntryDto, currentUser?: TestUs
 }
 
 function boostCostFromEntry(entry: JournalEntryDto) {
-  return nonNegativeNumber(entry.boostPrice)
+  const explicit = nonNegativeNumber(entry.boostPrice)
     ?? nonNegativeNumber(entry.boostCost)
     ?? nonNegativeNumber(entry.bonusPrice)
-    ?? nonNegativeNumber(entry.bonusCost)
-    ?? 0;
+    ?? nonNegativeNumber(entry.bonusCost);
+  if (typeof explicit === "number" && explicit > 0) return explicit;
+
+  const inferred = inferBoostSeatCostFromParticipants(entry);
+  if (inferred > 0) return inferred;
+
+  return explicit ?? 0;
 }
 
 function boostImpactFromEntry(entry: JournalEntryDto) {
@@ -57,7 +62,12 @@ function boostImpactFromEntry(entry: JournalEntryDto) {
   const weight = nonNegativeNumber(entry.boostBonus)
     ?? nonNegativeNumber(entry.boostWeight)
     ?? nonNegativeNumber(entry.bonusWeight);
-  return weight ? `+${formatPercent(weight)}% к весу участия` : "шанс участия зафиксирован";
+  if (weight) return `+${formatPercent(weight)}% к весу участия`;
+
+  const inferredWeightPercent = inferBoostWeightPercentFromParticipants(entry.participants ?? []);
+  return inferredWeightPercent > 0
+    ? `+${formatPercent(inferredWeightPercent)}% к весу участия`
+    : "шанс участия зафиксирован";
 }
 
 export function journalEventsToAuditTrail(events: JournalEventDto[]) {
@@ -141,7 +151,7 @@ function mapRoundFinance(
   currentUser?: TestUser
 ) {
   if (!currentUser) {
-    const balanceChanges = mapBalanceChanges(entry.participants ?? []);
+    const balanceChanges = mapBalanceChanges(entry);
     return {
       balanceChanges,
       userBalanceDelta: winnerBalanceDelta(entry.participants ?? [], winner?.id)
@@ -160,8 +170,13 @@ function mapRoundFinance(
   const seatCount = Math.max(1, currentParticipants.length, sourcePlayers.length);
   const boostedSeatCount = Math.max(currentParticipants.filter((item) => item.hasBoost).length, sourcePlayers.filter((item) => item.boostUsed).length);
   const entryCost = positiveNumber(entry.entryCost) ?? 0;
-  const boostCost = boostUsed ? boostCostFromEntry(entry) * Math.max(1, boostedSeatCount) : 0;
   const prizeFund = positiveNumber(entry.prizeFund) ?? 0;
+  const backendDeltas = sourcePlayers
+    .map((player) => player.balanceDelta)
+    .filter((delta): delta is number => typeof delta === "number" && Number.isFinite(delta));
+  const backendDelta = backendDeltas.length
+    ? backendDeltas.reduce((sum, delta) => sum + delta, 0)
+    : undefined;
   const userWon = Boolean(
     participant?.winner
       || participant?.status?.toUpperCase() === "WINNER"
@@ -169,6 +184,15 @@ function mapRoundFinance(
       || sourcePlayer?.status?.toUpperCase() === "WINNER"
       || (winner && participant && (winner.id === participant.id || winner.userId === participant.userId || winner.seatNumber === participant.seatNumber))
   );
+  const explicitBoostCost = boostUsed ? boostCostFromEntry(entry) * Math.max(1, boostedSeatCount) : 0;
+  const inferredBoostCost = inferBoostCostFromDelta({
+    backendDelta,
+    entryCost,
+    seatCount,
+    userWon,
+    prizeFund
+  });
+  const boostCost = explicitBoostCost > 0 ? explicitBoostCost : inferredBoostCost;
 
   const userChanges: RoundBalanceChange[] = [];
   if (participant || sourcePlayer) {
@@ -201,18 +225,12 @@ function mapRoundFinance(
     }
   }
 
-  const backendDeltas = sourcePlayers
-    .map((player) => player.balanceDelta)
-    .filter((delta): delta is number => typeof delta === "number" && Number.isFinite(delta));
-  const backendDelta = backendDeltas.length
-    ? backendDeltas.reduce((sum, delta) => sum + delta, 0)
-    : undefined;
   const derivedDelta = userChanges.reduce((sum, change) => sum + change.delta, 0);
   const userBalanceDelta = backendDelta !== undefined && (backendDelta !== 0 || derivedDelta === 0)
     ? backendDelta
     : derivedDelta;
   const currentNames = new Set([participantName, ...sourcePlayers.map((player) => player.username).filter((name): name is string => Boolean(name))]);
-  const otherChanges = mapBalanceChanges(entry.participants ?? []).filter((change) => !currentNames.has(change.participantName));
+  const otherChanges = mapBalanceChanges(entry).filter((change) => !currentNames.has(change.participantName));
 
   return {
     balanceChanges: userChanges.length ? [...userChanges, ...otherChanges] : otherChanges,
@@ -220,17 +238,24 @@ function mapRoundFinance(
   };
 }
 
-function mapBalanceChanges(players: JournalParticipantDto[]): RoundBalanceChange[] {
+function mapBalanceChanges(entry: JournalEntryDto): RoundBalanceChange[] {
+  const players = entry.participants ?? [];
+  const prizeFund = positiveNumber(entry.prizeFund) ?? 0;
+  const entryCost = positiveNumber(entry.entryCost) ?? 0;
   const seats = buildUniqueSeats(players);
   const changes: RoundBalanceChange[] = players
-    .filter((player) => typeof player.balanceDelta === "number")
-    .map((player, index) => ({
-      participantId: participantId(player, seats[index], index),
-      participantName: player.username ?? `Участник ${index + 1}`,
-      kind: player.bot ? "bot" : "user",
-      delta: player.balanceDelta ?? 0,
-      reason: (player.balanceDelta ?? 0) > 0 ? "prize" : "entry-reserve"
-    }));
+    .filter((player) => typeof player.balanceDelta === "number" || (Boolean(player.bot) && isSourceWinner(player) && prizeFund > 0))
+    .map((player, index) => {
+      const botWinner = Boolean(player.bot) && isSourceWinner(player) && prizeFund > 0;
+      const delta = botWinner ? (prizeFund - entryCost) : (player.balanceDelta ?? 0);
+      return {
+        participantId: participantId(player, seats[index], index),
+        participantName: player.username ?? `Участник ${index + 1}`,
+        kind: player.bot ? "bot" : "user",
+        delta,
+        reason: delta > 0 ? "prize" : "entry-reserve"
+      };
+    });
   return aggregateBalanceChanges(changes);
 }
 
@@ -381,6 +406,76 @@ function nonNegativeNumber(value?: number | null) {
 
 function normalizePercent(value?: number | null) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function prizePoolPercentFromEntry(entry: JournalEntryDto, participantsCount: number) {
+  const explicit = normalizePercent(entry.winnerPercent);
+  if (explicit !== undefined && explicit > 0) return explicit;
+
+  const entryCost = positiveNumber(entry.entryCost) ?? 0;
+  const maxPlayers = positiveNumber(entry.maxPlayers) ?? participantsCount;
+  const totalPool = entryCost * maxPlayers;
+  const prizeFund = positiveNumber(entry.prizeFund) ?? 0;
+  if (totalPool <= 0 || prizeFund <= 0) return 100;
+
+  const derived = (prizeFund * 100) / totalPool;
+  return Math.round(derived * 100) / 100;
+}
+
+function inferBoostCostFromDelta(params: {
+  backendDelta?: number;
+  entryCost: number;
+  seatCount: number;
+  userWon: boolean;
+  prizeFund: number;
+}) {
+  if (params.backendDelta === undefined) return 0;
+  const grossPrize = params.userWon ? params.prizeFund : 0;
+  const inferred = grossPrize - (params.entryCost * params.seatCount) - params.backendDelta;
+  if (!Number.isFinite(inferred) || inferred <= 0) return 0;
+  return Math.round(inferred);
+}
+
+function inferBoostSeatCostFromParticipants(entry: JournalEntryDto) {
+  const participants = entry.participants ?? [];
+  const entryCost = positiveNumber(entry.entryCost) ?? 0;
+  const prizeFund = positiveNumber(entry.prizeFund) ?? 0;
+  if (!participants.length || entryCost <= 0) return 0;
+
+  const inferredCosts = participants
+    .filter((player) => Boolean(player.boostUsed))
+    .map((player) => {
+      if (typeof player.balanceDelta !== "number" || !Number.isFinite(player.balanceDelta)) return 0;
+      const grossPrize = isSourceWinner(player) ? prizeFund : 0;
+      const inferred = grossPrize - entryCost - player.balanceDelta;
+      return Number.isFinite(inferred) && inferred > 0 ? inferred : 0;
+    })
+    .filter((value) => value > 0);
+  if (!inferredCosts.length) return 0;
+
+  const average = inferredCosts.reduce((sum, value) => sum + value, 0) / inferredCosts.length;
+  return Math.round(average);
+}
+
+function inferBoostWeightPercentFromParticipants(participants: JournalParticipantDto[]) {
+  if (!participants.length) return 0;
+
+  const boostedWeights = participants
+    .filter((player) => Boolean(player.boostUsed))
+    .map((player) => player.finalWeight)
+    .filter((weight): weight is number => typeof weight === "number" && Number.isFinite(weight) && weight > 0);
+  const baseWeights = participants
+    .filter((player) => !Boolean(player.boostUsed))
+    .map((player) => player.finalWeight)
+    .filter((weight): weight is number => typeof weight === "number" && Number.isFinite(weight) && weight > 0);
+
+  if (!boostedWeights.length || !baseWeights.length) return 0;
+
+  const baseWeight = Math.min(...baseWeights);
+  const boostedWeight = Math.max(...boostedWeights);
+  if (baseWeight <= 0 || boostedWeight <= baseWeight) return 0;
+
+  return ((boostedWeight - baseWeight) * 100) / baseWeight;
 }
 
 function formatPercent(value: number) {

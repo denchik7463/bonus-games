@@ -95,14 +95,14 @@ function buildPeriodParams(period: { days: number; bucketMinutes: number }): Das
   const start = startOfLocalDay(end);
   start.setDate(start.getDate() - period.days + 1);
   return {
-    start: withoutMs(start),
-    end: withoutMs(end),
+    start: toUtcIso(start),
+    end: toUtcIso(end),
     bucketMinutes: period.bucketMinutes
   };
 }
 
-function withoutMs(date: Date) {
-  return date.toISOString().replace(/\.\d{3}Z$/, "");
+function toUtcIso(date: Date) {
+  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
 function startOfLocalDay(date: Date) {

@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -45,7 +46,7 @@ public class DashboardService {
         int bucketSize = normalizeBucketMinutes(bucketMinutes);
 
         return DashboardResponse.builder()
-                .generatedAt(OffsetDateTime.now())
+                .generatedAt(OffsetDateTime.now(ZoneOffset.UTC))
                 .currentActivePlayers(getCurrentActivePlayers())
                 .currentActiveRooms(getCurrentActiveRooms())
                 .activePlayersTimeline(getActivePlayersTimeline(range.start(), range.end(), bucketSize))
@@ -82,7 +83,8 @@ public class DashboardService {
     }
 
     private Long getCurrentActivePlayers() {
-        return roomPlayerRepository.countDistinctRealUsersInRoomStatuses(ACTIVE_ROOM_STATUSES);
+        Long count = roomPlayerRepository.countDistinctRealUsersInRoomStatuses(ACTIVE_ROOM_STATUSES);
+        return count == null ? 0L : count;
     }
 
     private Long getCurrentActiveRooms() {
@@ -93,26 +95,33 @@ public class DashboardService {
                                                                        LocalDateTime end,
                                                                        int bucketMinutes) {
         Map<LocalDateTime, Long> buckets = createEmptyBuckets(start, end, bucketMinutes);
-        List<RoomPlayer> players = roomPlayerRepository.findRealPlayersForOnlineTimeline(start, end);
+        LocalDateTime endExclusive = end.plusNanos(1);
+        List<RoomPlayer> players = roomPlayerRepository.findRealPlayersForOnlineTimeline(start, endExclusive);
 
-        for (LocalDateTime bucketTime : buckets.keySet()) {
+        for (LocalDateTime bucketStart : buckets.keySet()) {
+            LocalDateTime bucketEndExclusive = bucketStart.plusMinutes(bucketMinutes);
+            if (bucketEndExclusive.isAfter(endExclusive)) {
+                bucketEndExclusive = endExclusive;
+            }
             Set<UUID> uniqueUsers = new HashSet<>();
             for (RoomPlayer player : players) {
-                if (isRealPlayerOnlineAt(player, bucketTime)) {
+                if (isRealPlayerOnlineInInterval(player, bucketStart, bucketEndExclusive)) {
                     uniqueUsers.add(player.getUserId());
                 }
             }
-            buckets.put(bucketTime, (long) uniqueUsers.size());
+            buckets.put(bucketStart, (long) uniqueUsers.size());
         }
 
         return toSortedPoints(buckets);
     }
 
-    private boolean isRealPlayerOnlineAt(RoomPlayer player, LocalDateTime bucketTime) {
+    private boolean isRealPlayerOnlineInInterval(RoomPlayer player,
+                                                  LocalDateTime intervalStart,
+                                                  LocalDateTime intervalEndExclusive) {
         if (player == null || player.getUserId() == null || player.getJoinTime() == null) {
             return false;
         }
-        if (player.getJoinTime().isAfter(bucketTime)) {
+        if (!player.getJoinTime().isBefore(intervalEndExclusive)) {
             return false;
         }
         Room room = player.getRoom();
@@ -120,7 +129,7 @@ public class DashboardService {
             return false;
         }
         LocalDateTime finishedAt = room.getFinishedAt();
-        return finishedAt == null || finishedAt.isAfter(bucketTime);
+        return finishedAt == null || finishedAt.isAfter(intervalStart);
     }
 
     private List<DashboardMetricPointResponse> getRoomCountTimeline(LocalDateTime start,
@@ -141,7 +150,7 @@ public class DashboardService {
         return buckets.entrySet()
                 .stream()
                 .sorted(Map.Entry.comparingByKey())
-                .map(entry -> new DashboardMetricPointResponse(entry.getKey(), entry.getValue()))
+                .map(entry -> new DashboardMetricPointResponse(entry.getKey().atOffset(ZoneOffset.UTC), entry.getValue()))
                 .toList();
     }
 

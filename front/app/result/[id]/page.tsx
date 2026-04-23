@@ -311,10 +311,19 @@ function userFinanceRows(round: Round, userId: string) {
   const currentUserBalanceKey = `${userId}-`;
   const userChanges = round.balanceChanges.filter((change) => change.participantId === userId || change.participantId.startsWith(currentUserBalanceKey));
   const entry = userChanges.filter((change) => change.reason === "entry-reserve").reduce((sum, change) => sum + change.delta, 0);
-  const boost = userChanges.filter((change) => change.reason === "boost").reduce((sum, change) => sum + change.delta, 0);
+  const explicitBoost = userChanges.filter((change) => change.reason === "boost").reduce((sum, change) => sum + change.delta, 0);
   const prize = userChanges.filter((change) => change.reason === "prize").reduce((sum, change) => sum + change.delta, 0);
-  const totalFromBreakdown = entry + boost + prize;
-  const total = userChanges.length ? totalFromBreakdown : round.balanceDelta;
+  const totalFromBreakdown = entry + explicitBoost + prize;
+  const totalReference = Number.isFinite(round.balanceDelta) ? round.balanceDelta : totalFromBreakdown;
+  const inferredBoost = totalReference - entry - prize;
+  const boost = userChanges.length > 0
+    && round.boostUsed
+    && explicitBoost === 0
+    && Number.isFinite(inferredBoost)
+    && inferredBoost < 0
+    ? inferredBoost
+    : explicitBoost;
+  const total = userChanges.length ? (entry + boost + prize) : round.balanceDelta;
   return [
     { label: "Вход", value: entry, tone: "ember" as const },
     { label: "Буст", value: boost, tone: boost < 0 ? "ember" as const : "muted" as const },

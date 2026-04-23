@@ -5,6 +5,8 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/game_backend}
     username: ${DB_USERNAME:game}
     password: ${DB_PASSWORD:game}
+  jackson:
+    time-zone: UTC
   jpa:
     open-in-view: false
     hibernate:
@@ -12,6 +14,8 @@ spring:
     show-sql: true
     properties:
       hibernate:
+        jdbc:
+          time_zone: UTC
         format_sql: true
   flyway:
     enabled: true

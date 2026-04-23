@@ -4,6 +4,7 @@ import com.game.model.entity.RoomPlayer;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 
 import java.util.List;
@@ -54,7 +55,7 @@ public interface RoomPlayerRepository extends JpaRepository<RoomPlayer, Long> {
         where rp.bot = false
           and r.status in :statuses
         """)
-    Long countDistinctRealUsersInRoomStatuses(List<String> statuses);
+    Long countDistinctRealUsersInRoomStatuses(@Param("statuses") List<String> statuses);
 
     @Query("""
         select rp
@@ -62,9 +63,10 @@ public interface RoomPlayerRepository extends JpaRepository<RoomPlayer, Long> {
         join fetch rp.room r
         where rp.bot = false
           and rp.joinTime is not null
-          and rp.joinTime <= :end
-          and (r.finishedAt is null or r.finishedAt >= :start)
+          and rp.joinTime < :endExclusive
+          and (r.finishedAt is null or r.finishedAt > :start)
         order by rp.joinTime asc, rp.id asc
         """)
-    List<RoomPlayer> findRealPlayersForOnlineTimeline(LocalDateTime start, LocalDateTime end);
+    List<RoomPlayer> findRealPlayersForOnlineTimeline(@Param("start") LocalDateTime start,
+                                                      @Param("endExclusive") LocalDateTime endExclusive);
 }

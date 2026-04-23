@@ -2,10 +2,10 @@ package com.game.model.dto;
 
 import lombok.Value;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 @Value
 public class DashboardMetricPointResponse {
-    LocalDateTime time;
+    OffsetDateTime time;
     Long count;
 }

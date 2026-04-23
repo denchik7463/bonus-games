@@ -19,16 +19,28 @@ export function HistoryRoundCard({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const winner = resolveRoundWinner(round);
   const currentUserBalanceKey = `${currentUserId}-`;
-  const prizeWon = round.balanceChanges
-    .filter((change) => (change.participantId === currentUserId || change.participantId.startsWith(currentUserBalanceKey)) && change.reason === "prize")
+  const userChanges = round.balanceChanges
+    .filter((change) => change.participantId === currentUserId || change.participantId.startsWith(currentUserBalanceKey));
+  const prizeWon = userChanges
+    .filter((change) => change.reason === "prize")
     .reduce((sum, change) => sum + change.delta, 0);
-  const userSeatCount = round.participants.filter((participant) => participant.userId === currentUserId || participant.id === currentUserId).length;
-  const placedFromChanges = round.balanceChanges
-    .filter((change) => (change.participantId === currentUserId || change.participantId.startsWith(currentUserBalanceKey)) && (change.reason === "entry-reserve" || change.reason === "boost"))
+  const entrySpent = userChanges
+    .filter((change) => change.reason === "entry-reserve")
     .reduce((sum, change) => sum + Math.abs(change.delta), 0);
-  const placed = placedFromChanges || (round.entryCost * Math.max(1, userSeatCount) + (round.boostUsed ? round.boostCost : 0));
+  const boostSpent = resolveUserBoostSpent(round, userChanges, entrySpent, prizeWon);
+  const userSeatCount = round.participants.filter((participant) => participant.userId === currentUserId || participant.id === currentUserId).length;
+  const placedFromChanges = userChanges
+    .filter((change) => change.reason === "entry-reserve" || change.reason === "boost")
+    .reduce((sum, change) => sum + Math.abs(change.delta), 0);
+  const placed = placedFromChanges || (round.entryCost * Math.max(1, userSeatCount) + boostSpent);
+  const userBoostUsed = boostSpent > 0 || round.participants.some((participant) =>
+    (participant.userId === currentUserId || participant.id === currentUserId) && participant.hasBoost
+  );
+  const boostSummary = userBoostUsed
+    ? `${formatBonus(boostSpent)} · ${resolveBoostImpactLabel(round)}`
+    : "не использовался";
   const statusWon = isRoundWonByUser(round, currentUserId);
-  const balanceRows = balanceRowsForAudit(round.balanceChanges);
+  const balanceRows = balanceRowsForAudit(round.balanceChanges, currentUserId);
 
   return (
     <article className="surface-solid relative overflow-hidden rounded-[30px] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
@@ -53,7 +65,7 @@ export function HistoryRoundCard({
                   {formatDateTime(round.startedAt)}
                 </span>
                 <span className="text-smoke">{round.participants.length} участников</span>
-                <span className="text-smoke">{round.boostUsed ? "Буст пользователя: да" : "Буст пользователя: нет"}</span>
+                <span className="text-smoke">{userBoostUsed ? "Буст пользователя: да" : "Буст пользователя: нет"}</span>
               </div>
             </div>
           </div>
@@ -143,7 +155,7 @@ export function HistoryRoundCard({
                 <SummaryMetric label="Игра" value={modeLabel(round.mode)} />
                 <SummaryMetric label="Фонд" value={formatBonus(round.prizePool)} />
                 <SummaryMetric label="Доля фонда" value={`${round.prizePoolPercent}%`} />
-                <SummaryMetric label="Буст пользователя" value={round.boostUsed ? `${formatBonus(round.boostCost)} · ${round.boostImpact}` : "не использовался"} />
+                <SummaryMetric label="Буст пользователя" value={boostSummary} />
                 <SummaryMetric label="Победитель" value={winner ? (winner.seatNumber ? `${winner.name} · ${winner.seatNumber} место` : winner.name) : "Победитель не подтверждён"} highlight={statusWon} />
               </div>
             </section>
@@ -257,17 +269,75 @@ function reasonLabel(reason: RoundBalanceChange["reason"]) {
   }[reason];
 }
 
-function balanceRowsForAudit(changes: RoundBalanceChange[]) {
+function balanceRowsForAudit(changes: RoundBalanceChange[], currentUserId: string) {
   const winnersByName = new Set(
     changes
       .filter((change) => change.reason === "prize" && change.delta > 0)
       .map((change) => change.participantName)
   );
+  const currentUserBalanceKey = `${currentUserId}-`;
 
   return changes.filter((change) => {
+    if (change.participantId === currentUserId || change.participantId.startsWith(currentUserBalanceKey)) {
+      return true;
+    }
     if (!winnersByName.has(change.participantName)) return true;
     return change.reason === "prize" && change.delta > 0;
   });
+}
+
+function resolveUserBoostSpent(
+  round: Round,
+  userChanges: RoundBalanceChange[],
+  entrySpent: number,
+  prizeWon: number
+) {
+  const explicitBoostSpent = userChanges
+    .filter((change) => change.reason === "boost")
+    .reduce((sum, change) => sum + Math.abs(change.delta), 0);
+  if (explicitBoostSpent > 0) return explicitBoostSpent;
+
+  const inferred = prizeWon - entrySpent - round.balanceDelta;
+  if (!Number.isFinite(inferred) || inferred <= 0) return 0;
+  return Math.round(inferred);
+}
+
+function resolveBoostImpactLabel(round: Round) {
+  const boostImpact = (round.boostImpact ?? "").trim();
+  if (boostImpact && !/зафиксирован/i.test(boostImpact)) return boostImpact;
+
+  const gain = round.boostAbsoluteGainPercent;
+  if (typeof gain === "number" && Number.isFinite(gain) && gain > 0) {
+    return `+${formatPercent(gain)}% к шансу победы`;
+  }
+
+  const inferred = inferBoostWeightPercent(round);
+  if (inferred > 0) {
+    return `+${formatPercent(inferred)}% к весу участия`;
+  }
+
+  return boostImpact || "шанс участия зафиксирован";
+}
+
+function inferBoostWeightPercent(round: Round) {
+  const boostedWeights = round.participants
+    .filter((participant) => participant.hasBoost && participant.weight > 0)
+    .map((participant) => participant.weight);
+  const baseWeights = round.participants
+    .filter((participant) => !participant.hasBoost && participant.weight > 0)
+    .map((participant) => participant.weight);
+  if (!boostedWeights.length || !baseWeights.length) return 0;
+
+  const baseWeight = Math.min(...baseWeights);
+  const boostedWeight = Math.max(...boostedWeights);
+  if (baseWeight <= 0 || boostedWeight <= baseWeight) return 0;
+
+  return ((boostedWeight - baseWeight) * 100) / baseWeight;
+}
+
+function formatPercent(value: number) {
+  const rounded = Math.round(value * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function formatDateTime(value: string) {

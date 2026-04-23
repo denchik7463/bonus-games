@@ -61,7 +61,7 @@ export function DashboardSummary({ data }: { data: DashboardResponseDto }) {
 export function DashboardCharts({ activePlayers, rooms }: { activePlayers: DashboardMetricPointDto[]; rooms: DashboardMetricPointDto[] }) {
   return (
     <div className="grid items-stretch gap-6 xl:grid-cols-2">
-      <TimelineChart title="Игроки в активных комнатах" description="Группировка по времени входа игроков." data={activePlayers} color="#ffcd18" icon={<Activity className="h-4 w-4" />} />
+      <TimelineChart title="Игроки в активных комнатах" description="История онлайна по интервалам: только реальные игроки, без дублей в каждом интервале." data={activePlayers} color="#ffcd18" icon={<Activity className="h-4 w-4" />} />
       <TimelineChart title="Созданные комнаты" description="Динамика создания комнат по времени." data={rooms} color="#39d98a" icon={<DoorOpen className="h-4 w-4" />} />
     </div>
   );
@@ -248,27 +248,41 @@ function PanelGlow() {
 }
 
 function formatBackendTimeLabel(value: string, includeDate: boolean) {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/);
-  if (match) {
-    const [, , month, day, time] = match;
-    return includeDate ? `${day}.${month} ${time}` : time;
-  }
-  const plainTimeMatch = value.match(/\b(\d{2}:\d{2})\b/);
-  if (plainTimeMatch) return plainTimeMatch[1];
-  return value;
+  const date = parseDashboardDate(value);
+  if (!date) return value;
+
+  return date.toLocaleString("ru-RU", {
+    day: includeDate ? "2-digit" : undefined,
+    month: includeDate ? "2-digit" : undefined,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).replace(",", "");
 }
 
 function hasMultipleDays(data: DashboardMetricPointDto[]) {
   const days = new Set(
     data
-      .map((point) => point.time.match(/^(\d{4}-\d{2}-\d{2})T/)?.[1])
+      .map((point) => {
+        const date = parseDashboardDate(point.time);
+        if (!date) return null;
+        return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+      })
       .filter(Boolean)
   );
   return days.size > 1;
 }
 
 function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseDashboardDate(value);
+  if (!date) return value;
   return date.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function parseDashboardDate(value: string) {
+  if (!value) return null;
+
+  const withZone = /[zZ]$|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`;
+  const date = new Date(withZone);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
