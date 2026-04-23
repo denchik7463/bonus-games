@@ -35,6 +35,13 @@ export type JournalEntryDto = {
   entryCost?: number;
   prizeFund?: number;
   boostAllowed?: boolean;
+  boostPrice?: number;
+  boostCost?: number;
+  bonusPrice?: number;
+  bonusCost?: number;
+  boostAbsoluteGainPercent?: number;
+  chanceWithBoostPercent?: number;
+  currentChancePercent?: number;
   botCount?: number;
   roomStatus?: string;
   winnerPlayerExternalId?: string;
@@ -42,6 +49,8 @@ export type JournalEntryDto = {
   winnerPositionIndex?: number;
   baseWeight?: number | null;
   boostBonus?: number | null;
+  boostWeight?: number | null;
+  bonusWeight?: number | null;
   totalWeight?: number | null;
   roll?: number | null;
   randomHash?: string | null;
@@ -50,6 +59,15 @@ export type JournalEntryDto = {
   gameMechanic?: BackendGameMechanic | string;
   participants?: JournalParticipantDto[];
   events?: JournalEventDto[];
+};
+
+export type WinStreakDto = {
+  userId: string;
+  username: string;
+  currentWinStreak: number;
+  latestGameResultId?: string | null;
+  latestGameAt?: string | null;
+  calculatedAt?: string | null;
 };
 
 export type JournalFilterParams = {

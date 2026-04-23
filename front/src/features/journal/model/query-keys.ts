@@ -8,5 +8,6 @@ export const journalQueryKeys = {
   roomEvents: (roomId: string) => [...journalQueryKeys.all, "room-events", roomId] as const,
   me: ["journal", "me"] as const,
   myDetail: (id: string) => [...journalQueryKeys.me, id] as const,
-  myEvents: (id: string) => [...journalQueryKeys.me, "events", id] as const
+  myEvents: (id: string) => [...journalQueryKeys.me, "events", id] as const,
+  myWinStreak: (userId: string) => [...journalQueryKeys.me, "win-streak", userId] as const
 };

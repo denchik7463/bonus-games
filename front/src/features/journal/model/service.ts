@@ -4,6 +4,7 @@ import { getJournalEntry } from "@/src/features/journal/api/getJournalEntry";
 import { getJournalEvents, getJournalEventsByRoom } from "@/src/features/journal/api/getJournalEvents";
 import { getMyJournal, getMyJournalEntry } from "@/src/features/journal/api/getMyJournal";
 import { getMyJournalEvents } from "@/src/features/journal/api/getMyJournalEvents";
+import { getMyWinStreak } from "@/src/features/journal/api/getMyWinStreak";
 import { journalEntryToRound, journalEventsToAuditTrail } from "@/src/features/journal/model/mappers";
 import type { JournalFilterParams } from "@/src/features/journal/model/types";
 
@@ -36,8 +37,20 @@ export const journalService = {
     return journalEntryToRound(entry, user);
   },
 
+  async getRoundForUser(id: string, user: TestUser) {
+    try {
+      return await this.getMyJournalEntry(id, user);
+    } catch {
+      return this.getJournalEntry(id);
+    }
+  },
+
   async getMyJournalEvents(id: string) {
     const events = await getMyJournalEvents(id);
     return journalEventsToAuditTrail(events);
+  },
+
+  async getMyWinStreak() {
+    return getMyWinStreak();
   }
 };

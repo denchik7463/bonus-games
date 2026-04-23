@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { Room, Round, TestUser } from "@/lib/domain/types";
+import { Round, TestUser } from "@/lib/domain/types";
 
 const loggedOutUser: TestUser = {
   id: "guest",
@@ -19,13 +19,9 @@ const loggedOutUser: TestUser = {
 
 type AppState = {
   user: TestUser;
-  activeRoom?: Room;
-  activeRound?: Round;
   settledRoundIds: string[];
   setUser: (user: TestUser) => void;
   updateUser: (user: TestUser) => void;
-  setActiveRoom: (room?: Room) => void;
-  setActiveRound: (round?: Round) => void;
   settleRound: (round: Round) => void;
   logout: () => void;
 };
@@ -34,13 +30,9 @@ export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
       user: loggedOutUser,
-      activeRoom: undefined,
-      activeRound: undefined,
       settledRoundIds: [],
-      setUser: (user) => set({ user, activeRoom: undefined, activeRound: undefined, settledRoundIds: [] }),
+      setUser: (user) => set({ user, settledRoundIds: [] }),
       updateUser: (user) => set({ user }),
-      setActiveRoom: (activeRoom) => set({ activeRoom }),
-      setActiveRound: (activeRound) => set({ activeRound }),
       settleRound: (round) =>
         set((state) => {
           if (state.settledRoundIds.includes(round.id) || state.user.id !== round.userId) return state;
@@ -49,15 +41,23 @@ export const useAppStore = create<AppState>()(
             settledRoundIds: [...state.settledRoundIds, round.id]
           };
         }),
-      logout: () => set({ user: loggedOutUser, activeRoom: undefined, activeRound: undefined, settledRoundIds: [] })
+      logout: () => set({ user: loggedOutUser, settledRoundIds: [] })
     }),
     {
       name: "vip-quick-rooms-store",
+      version: 4,
       storage: createJSONStorage(() => localStorage),
+      migrate: (persistedState) => {
+        if (!persistedState || typeof persistedState !== "object") return persistedState;
+        const state = persistedState as Partial<AppState> & { activeRoom?: unknown; activeRound?: unknown };
+        delete state.activeRoom;
+        delete state.activeRound;
+        return {
+          ...state
+        };
+      },
       partialize: (state) => ({
         user: state.user,
-        activeRoom: state.activeRoom,
-        activeRound: state.activeRound,
         settledRoundIds: state.settledRoundIds
       })
     }

@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { Bot, ChevronDown, Clock3, Sparkles, Trophy } from "lucide-react";
-import { WinningCombinationBlock } from "@/components/domain/winning-combination";
 import { ParticipantToken } from "@/components/domain/participant-token";
 import { Round, RoundBalanceChange } from "@/lib/domain/types";
 import { cn, formatBonus } from "@/lib/utils";
+import { isRoundWonByUser, resolveRoundWinner } from "@/src/features/journal/model/outcome";
 
 export function HistoryRoundCard({
   round,
@@ -15,14 +15,19 @@ export function HistoryRoundCard({
   round: Round;
   currentUserId: string;
   defaultExpanded?: boolean;
-}) {
+  }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const winner = round.participants.find((participant) => participant.id === round.winnerId) ?? round.participants[0];
+  const winner = resolveRoundWinner(round);
+  const currentUserBalanceKey = `${currentUserId}-`;
   const prizeWon = round.balanceChanges
-    .filter((change) => change.participantId === currentUserId && change.reason === "prize")
+    .filter((change) => (change.participantId === currentUserId || change.participantId.startsWith(currentUserBalanceKey)) && change.reason === "prize")
     .reduce((sum, change) => sum + change.delta, 0);
-  const placed = round.entryCost + (round.boostUsed ? round.boostCost : 0);
-  const statusWon = round.winnerId === currentUserId;
+  const userSeatCount = round.participants.filter((participant) => participant.userId === currentUserId || participant.id === currentUserId).length;
+  const placedFromChanges = round.balanceChanges
+    .filter((change) => (change.participantId === currentUserId || change.participantId.startsWith(currentUserBalanceKey)) && (change.reason === "entry-reserve" || change.reason === "boost"))
+    .reduce((sum, change) => sum + Math.abs(change.delta), 0);
+  const placed = placedFromChanges || (round.entryCost * Math.max(1, userSeatCount) + (round.boostUsed ? round.boostCost : 0));
+  const statusWon = isRoundWonByUser(round, currentUserId);
 
   return (
     <article className="surface-solid relative overflow-hidden rounded-[30px] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
@@ -65,19 +70,20 @@ export function HistoryRoundCard({
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryMetric label="Цена входа" value={formatBonus(round.entryCost)} />
             <SummaryMetric label="Фонд" value={formatBonus(round.prizePool)} />
-            <SummaryMetric label="Победитель" value={winner.name} highlight={statusWon} />
-            <SummaryMetric label="Статус" value={statusWon ? "Вы выиграли" : `${winner.name} выиграл`} highlight={statusWon} />
+            <SummaryMetric label="Победитель" value={winner ? (winner.seatNumber ? `${winner.name} · ${winner.seatNumber} место` : winner.name) : "Победитель не подтверждён"} highlight={statusWon} />
+            <SummaryMetric label="Статус" value={statusWon ? "Вы выиграли" : winner ? `${winner.name} выиграл` : "Победитель не подтверждён"} highlight={statusWon} />
           </div>
 
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-gold">Участники</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              {round.participants.map((participant) => (
+              {round.participants.map((participant, index) => (
                 <ParticipantPill
-                  key={participant.id}
+                  key={`${participant.id}-${participant.seatNumber ?? index}`}
                   name={participant.name}
-                  isCurrentUser={participant.id === currentUserId}
-                  isWinner={participant.id === round.winnerId}
+                  seatNumber={participant.seatNumber}
+                  isCurrentUser={participant.userId === currentUserId || participant.id === currentUserId}
+                  isWinner={participant.winner || participant.status?.toUpperCase() === "WINNER"}
                   isBot={participant.kind === "bot"}
                   hasBoost={participant.hasBoost}
                 />
@@ -87,15 +93,14 @@ export function HistoryRoundCard({
         </div>
 
         <div className="space-y-4">
-          <WinningCombinationBlock combination={round.combination} compact />
-          <div className="rounded-[24px] bg-white/[0.045] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)]">
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-gold">Краткий итог</p>
-            <p className="mt-3 text-sm leading-7 text-smoke">
-              {statusWon
-                ? `Вы обошли ${round.participants.length - 1} соперников. Победная комбинация сохранена в истории, а баланс вырос на ${formatBonus(round.balanceDelta)}.`
-                : `Раунд завершился в пользу ${winner.name}. Комбинация сохранена, а итог по вашему балансу составил ${formatBonus(Math.abs(round.balanceDelta))}.`}
-            </p>
-          </div>
+            <div className="rounded-[24px] bg-white/[0.045] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)]">
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-gold">Краткий итог</p>
+              <p className="mt-3 text-sm leading-7 text-smoke">
+                {statusWon
+                  ? `Вы обошли ${round.participants.length - 1} соперников. Победившее место зафиксировано, а баланс вырос на ${formatBonus(round.balanceDelta)}.`
+                  : `Раунд завершился в пользу ${winner ? (winner.seatNumber ? `${winner.name} на ${winner.seatNumber} месте` : winner.name) : "победителя, зафиксированного в истории"}. Итог по вашему балансу составил ${formatBonus(Math.abs(round.balanceDelta))}.`}
+              </p>
+            </div>
         </div>
       </div>
 
@@ -115,12 +120,12 @@ export function HistoryRoundCard({
           <section className="rounded-[26px] bg-white/[0.035] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.052)]">
             <h3 className="text-lg font-semibold text-platinum">Полный состав участников</h3>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {round.participants.map((participant) => (
+              {round.participants.map((participant, index) => (
                 <div
-                  key={participant.id}
+                  key={`${participant.id}-${participant.seatNumber ?? index}`}
                   className={cn(
                     "rounded-[20px] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]",
-                    participant.id === round.winnerId ? "bg-gold/[0.09]" : "bg-white/[0.035]"
+                    participant.winner || participant.status?.toUpperCase() === "WINNER" ? "bg-gold/[0.09]" : "bg-white/[0.035]"
                   )}
                 >
                   <ParticipantToken participant={participant} />
@@ -138,15 +143,15 @@ export function HistoryRoundCard({
                 <SummaryMetric label="Фонд" value={formatBonus(round.prizePool)} />
                 <SummaryMetric label="Доля фонда" value={`${round.prizePoolPercent}%`} />
                 <SummaryMetric label="Буст пользователя" value={round.boostUsed ? `${formatBonus(round.boostCost)} · ${round.boostImpact}` : "не использовался"} />
-                <SummaryMetric label="Победитель" value={winner.name} highlight={statusWon} />
+                <SummaryMetric label="Победитель" value={winner ? (winner.seatNumber ? `${winner.name} · ${winner.seatNumber} место` : winner.name) : "Победитель не подтверждён"} highlight={statusWon} />
               </div>
             </section>
 
             <section className="rounded-[26px] bg-white/[0.035] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.052)]">
               <h3 className="text-lg font-semibold text-platinum">Изменения баланса</h3>
               <div className="mt-4 space-y-2">
-                {round.balanceChanges.map((change) => (
-                  <BalanceRow key={`${change.participantId}-${change.reason}-${change.delta}`} change={change} currentUserId={currentUserId} />
+                {round.balanceChanges.map((change, index) => (
+                  <BalanceRow key={`${change.participantId}-${change.reason}-${change.delta}-${index}`} change={change} currentUserId={currentUserId} />
                 ))}
               </div>
             </section>
@@ -154,8 +159,8 @@ export function HistoryRoundCard({
             <section className="rounded-[26px] bg-white/[0.035] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.052)]">
               <h3 className="text-lg font-semibold text-platinum">Логика результата</h3>
               <div className="mt-4 flex flex-wrap gap-2">
-                {round.auditTrail.map((item) => (
-                  <span key={item} className="rounded-[18px] bg-white/[0.045] px-3 py-2 text-sm text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]">
+                {round.auditTrail.map((item, index) => (
+                  <span key={`${item}-${index}`} className="rounded-[18px] bg-white/[0.045] px-3 py-2 text-sm text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]">
                     {item}
                   </span>
                 ))}
@@ -170,12 +175,14 @@ export function HistoryRoundCard({
 
 function ParticipantPill({
   name,
+  seatNumber,
   isCurrentUser,
   isWinner,
   isBot,
   hasBoost
 }: {
   name: string;
+  seatNumber?: number;
   isCurrentUser: boolean;
   isWinner: boolean;
   isBot: boolean;
@@ -190,7 +197,7 @@ function ParticipantPill({
       )}
     >
       {isWinner ? <Trophy className="h-3.5 w-3.5 text-gold" /> : null}
-      <span className="font-medium">{name}</span>
+      <span className="font-medium">{seatNumber ? `${seatNumber} место · ${name}` : name}</span>
       {isCurrentUser ? <span className="text-[11px] uppercase tracking-[0.18em] text-jade">вы</span> : null}
       {isBot ? <Bot className="h-3.5 w-3.5 text-muted" /> : null}
       {hasBoost ? <Sparkles className="h-3.5 w-3.5 text-gold" /> : null}
@@ -217,8 +224,9 @@ function FinanceMetric({ label, value, accent }: { label: string; value: string;
 }
 
 function BalanceRow({ change, currentUserId }: { change: RoundBalanceChange; currentUserId: string }) {
+  const currentUserBalanceKey = `${currentUserId}-`;
   return (
-    <div className={cn("flex items-center justify-between rounded-[20px] p-3 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]", change.participantId === currentUserId ? "bg-jade/[0.08]" : "bg-white/[0.045]")}>
+    <div className={cn("flex items-center justify-between rounded-[20px] p-3 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]", (change.participantId === currentUserId || change.participantId.startsWith(currentUserBalanceKey)) ? "bg-jade/[0.08]" : "bg-white/[0.045]")}>
       <div>
         <p className="font-medium text-platinum">{change.participantName}</p>
         <p className="text-xs text-muted">{reasonLabel(change.reason)} {change.kind === "bot" ? "· бот" : ""}</p>
@@ -233,9 +241,10 @@ function BalanceRow({ change, currentUserId }: { change: RoundBalanceChange; cur
 function modeLabel(mode: Round["mode"]) {
   return {
     "arena-sprint": "Гонка шаров",
-    "claw-machine": "Автомат с шарами",
-    "duel-clash": "Дуэль арены",
-    "slot-reveal": "Раскрытие символов"
+    "claw-machine": "Призовой автомат",
+    "duel-clash": "Дуэль шиншилл",
+    "slot-reveal": "Магия имени",
+    "chinchilla-race": "Гонки шиншилл"
   }[mode];
 }
 

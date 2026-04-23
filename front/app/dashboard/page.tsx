@@ -21,18 +21,20 @@ import { useAppStore } from "@/lib/store/app-store";
 import { getUserFriendlyError } from "@/src/shared/api/errors";
 
 const periods = [
-  { label: "24 часа", hours: 24, bucketMinutes: 60 },
-  { label: "7 дней", hours: 24 * 7, bucketMinutes: 360 },
-  { label: "30 дней", hours: 24 * 30, bucketMinutes: 1440 }
+  { label: "24 часа", days: 1, bucketMinutes: 30 },
+  { label: "7 дней", days: 7, bucketMinutes: 360 },
+  { label: "30 дней", days: 30, bucketMinutes: 1440 }
 ];
 
 export default function DashboardPage() {
   const user = useAppStore((state) => state.user);
   const [periodIndex, setPeriodIndex] = useState(0);
   const params = useMemo(() => buildPeriodParams(periods[periodIndex]), [periodIndex]);
+  const canLoadDashboard = user.role === "expert" || user.role === "admin";
   const { data, error, isLoading, isFetching, refetch } = useQuery({
     queryKey: dashboardQueryKeys.summary(params),
-    queryFn: () => dashboardService.getDashboard(params)
+    queryFn: () => dashboardService.getDashboard(params),
+    enabled: canLoadDashboard
   });
 
   return (
@@ -88,9 +90,10 @@ export default function DashboardPage() {
   );
 }
 
-function buildPeriodParams(period: { hours: number; bucketMinutes: number }): DashboardQueryParams {
-  const end = new Date();
-  const start = new Date(end.getTime() - period.hours * 60 * 60 * 1000);
+function buildPeriodParams(period: { days: number; bucketMinutes: number }): DashboardQueryParams {
+  const end = endOfLocalDay(new Date());
+  const start = startOfLocalDay(end);
+  start.setDate(start.getDate() - period.days + 1);
   return {
     start: withoutMs(start),
     end: withoutMs(end),
@@ -100,4 +103,16 @@ function buildPeriodParams(period: { hours: number; bucketMinutes: number }): Da
 
 function withoutMs(date: Date) {
   return date.toISOString().replace(/\.\d{3}Z$/, "");
+}
+
+function startOfLocalDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfLocalDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 0);
+  return next;
 }

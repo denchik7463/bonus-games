@@ -86,6 +86,7 @@ export const roomTemplates: RoomTemplate[] = [
     boostImpact: "+12% к весу участия",
     boostEnabled: true,
     prizePoolPercent: 100,
+    prizeFund: 1920,
     seats: 6,
     reservedUntilSec: 18,
     recommendedFor: ["Gold", "Platinum", "Black Diamond"],
@@ -102,6 +103,7 @@ export const roomTemplates: RoomTemplate[] = [
     boostImpact: "+15% к весу участия",
     boostEnabled: true,
     prizePoolPercent: 100,
+    prizeFund: 2160,
     seats: 4,
     reservedUntilSec: 12,
     recommendedFor: ["Platinum", "Black Diamond"],
@@ -118,6 +120,7 @@ export const roomTemplates: RoomTemplate[] = [
     boostImpact: "+8% к весу участия",
     boostEnabled: true,
     prizePoolPercent: 100,
+    prizeFund: 1440,
     seats: 8,
     reservedUntilSec: 24,
     recommendedFor: ["Gold", "Platinum"],
@@ -134,6 +137,7 @@ export const roomTemplates: RoomTemplate[] = [
     boostImpact: "+18% к весу участия",
     boostEnabled: true,
     prizePoolPercent: 100,
+    prizeFund: 3800,
     seats: 5,
     reservedUntilSec: 9,
     recommendedFor: ["Black Diamond"],
@@ -177,7 +181,7 @@ export const rounds: Round[] = [
       { participantId: "b-02", participantName: "Рея", kind: "bot", delta: -320, reason: "entry-reserve" }
     ],
     combination: combinations[0],
-    auditTrail: ["резерв:320", "буст:90", "боты:3", "победитель:внешний seed", "комбинация:орбитальный код"]
+    auditTrail: ["резерв:320", "буст:90", "боты:3", "победитель:внешний seed", "слот:орбитальный код"]
   },
   {
     id: "round-1006",
@@ -207,6 +211,6 @@ export const rounds: Round[] = [
       { participantId: "b-03", participantName: "Вектор", kind: "bot", delta: 2160, reason: "prize" }
     ],
     combination: combinations[1],
-    auditTrail: ["резерв:540", "боты:2", "победитель:внешний seed", "комбинация:коронный сигнал"]
+    auditTrail: ["резерв:540", "боты:2", "победитель:внешний seed", "слот:коронный сигнал"]
   }
 ];

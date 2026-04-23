@@ -1,31 +1,53 @@
 "use client";
 
 import Image from "next/image";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowRight, Crown, LockKeyhole, Mail, Sparkles, UserPlus } from "lucide-react";
 import { FormEvent, useState } from "react";
-import { gameService } from "@/lib/services/game-service";
 import { useAppStore } from "@/lib/store/app-store";
 import { Button } from "@/components/ui/button";
-import { BalanceBadge, VipBadge } from "@/components/domain/badges";
-import { DemoRole } from "@/lib/domain/types";
+import { VipBadge } from "@/components/domain/badges";
 import { ChinchillaRunner } from "@/components/mascots/chinchilla-runner";
 import { cn } from "@/lib/utils";
 import { getUserFriendlyError } from "@/src/shared/api/errors";
 import { profileToTestUser } from "@/src/features/auth/lib/profile-to-user";
 import { useAuthStore } from "@/src/features/auth/model/store";
 import type { BackendRole } from "@/src/features/auth/model/types";
+import type { VipTier } from "@/lib/domain/types";
 
 type AuthMode = "login" | "register";
+
+const quickLoginAccounts = [
+  {
+    username: "Player",
+    password: "123456",
+    label: "Player",
+    roleLabel: "игрок",
+    tier: "Gold" as VipTier
+  },
+  {
+    username: "Expert",
+    password: "123456",
+    label: "Expert",
+    roleLabel: "эксперт",
+    tier: "Platinum" as VipTier
+  },
+  {
+    username: "Admin",
+    password: "123456",
+    label: "Admin",
+    roleLabel: "админ",
+    tier: "Black Diamond" as VipTier
+  }
+];
 
 export default function LoginPage() {
   const router = useRouter();
   const setUser = useAppStore((state) => state.setUser);
   const authLogin = useAuthStore((state) => state.login);
   const authRegister = useAuthStore((state) => state.register);
-  const { data: users = [] } = useQuery({ queryKey: ["users"], queryFn: gameService.getUsers });
   const [mode, setMode] = useState<AuthMode>("login");
   const [demoOpen, setDemoOpen] = useState(false);
   const [username, setUsername] = useState("");
@@ -66,12 +88,23 @@ export default function LoginPage() {
       setAuthError(getUserFriendlyError(error));
     }
   });
-
-  async function selectUser(userId: string) {
-    const user = await gameService.login(userId);
-    setUser(user);
-    router.push("/lobby");
-  }
+  const quickLoginMutation = useMutation({
+    mutationFn: (account: { username: string; password: string }) => authLogin(account),
+    onMutate: (account) => {
+      setAuthError(null);
+      setAuthSuccess(null);
+      setMode("login");
+      setUsername(account.username);
+      setPassword(account.password);
+    },
+    onSuccess: (profile) => {
+      setUser(profileToTestUser(profile));
+      router.push("/lobby");
+    },
+    onError: (error) => {
+      setAuthError(getUserFriendlyError(error));
+    }
+  });
 
   async function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -231,28 +264,29 @@ export default function LoginPage() {
                         <Sparkles className="h-4 w-4 text-gold" />
                         Демо-вход
                       </p>
-                      <p className="mt-1 text-sm leading-6 text-smoke">Откройте тестовые VIP-профили и зайдите без регистрации.</p>
+                      <p className="mt-1 text-sm leading-6 text-smoke">Быстрый вход в реальные зарегистрированные аккаунты.</p>
                     </div>
                     <ArrowRight className={cn("h-5 w-5 text-gold transition", demoOpen && "rotate-90")} />
                   </button>
 
                   {demoOpen ? (
                     <div className="mt-4 space-y-3">
-                      {users.map((user) => (
+                      {quickLoginAccounts.map((account) => (
                         <button
-                          key={user.id}
-                          onClick={() => selectUser(user.id)}
+                          key={account.username}
+                          onClick={() => quickLoginMutation.mutate({ username: account.username, password: account.password })}
+                          disabled={quickLoginMutation.isPending}
                           className="demo-profile-card group flex w-full items-center gap-3 rounded-[22px] bg-[linear-gradient(180deg,rgba(44,48,58,0.78),rgba(24,27,34,0.9))] p-3.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition duration-200 hover:bg-[linear-gradient(180deg,rgba(56,61,74,0.86),rgba(28,31,40,0.94))]"
                         >
-                          <div className="relative h-12 w-12 overflow-hidden rounded-full bg-[radial-gradient(circle_at_30%_25%,rgba(255,205,24,0.18),transparent_55%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(7,8,11,0.96))]">
-                            <Image src={user.avatar} alt="" fill className="object-cover" />
+                          <div className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-[radial-gradient(circle_at_30%_25%,rgba(255,205,24,0.22),transparent_55%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(7,8,11,0.96))] text-lg font-black text-gold shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                            {account.label.slice(0, 1)}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="font-semibold text-platinum">{user.name}</p>
-                            <p className="text-xs text-smoke">{user.handle} · <span className="text-[#aeb4bf]">{roleLabel(user.role)}</span></p>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              <VipBadge tier={user.tier} />
-                              <BalanceBadge balance={user.balance} />
+                            <p className="font-semibold text-platinum">{account.label}</p>
+                            <p className="text-xs text-smoke">{account.username} · <span className="text-[#aeb4bf]">{account.roleLabel}</span></p>
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <VipBadge tier={account.tier} />
+                              <span className="rounded-full bg-white/[0.055] px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-smoke">{account.roleLabel}</span>
                             </div>
                           </div>
                           <ArrowRight className="h-5 w-5 text-smoke transition group-hover:translate-x-1 group-hover:text-gold" />
@@ -307,12 +341,4 @@ function AuthField({
       </span>
     </label>
   );
-}
-
-function roleLabel(role: DemoRole) {
-  return {
-    player: "игрок",
-    expert: "эксперт",
-    admin: "админ"
-  }[role];
 }

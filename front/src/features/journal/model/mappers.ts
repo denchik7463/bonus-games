@@ -3,20 +3,18 @@ import { modeFromBackendMechanic } from "@/src/shared/config/game-mechanics";
 import type { JournalEntryDto, JournalEventDto, JournalParticipantDto } from "@/src/features/journal/model/types";
 
 export function journalEntryToRound(entry: JournalEntryDto, currentUser?: TestUser): Round {
-  const participants = mapParticipants(entry.participants ?? []);
-  const winner = findWinner(entry, participants);
+  const rawParticipants = mapParticipants(entry.participants ?? []);
+  const winner = findWinner(entry, rawParticipants, entry.participants ?? []);
+  const participants = normalizeWinnerFlags(rawParticipants, winner);
   const currentParticipant = currentUser
-    ? participants.find((participant) => participant.id === currentUser.id || participant.name === currentUser.name)
+    ? participants.find((participant) => isCurrentUserParticipant(participant, currentUser))
     : undefined;
   const userParticipant = currentParticipant ?? winner ?? participants[0];
-  const userId = currentUser?.id ?? userParticipant?.id ?? entry.winnerPlayerExternalId ?? "journal-user";
+  const userId = currentUser?.id ?? userParticipant?.userId ?? userParticipant?.id ?? entry.winnerPlayerExternalId ?? "journal-user";
   const boostUsed = currentUser
-    ? Boolean((entry.participants ?? []).find((participant) => participant.playerExternalId === currentUser.id || participant.username === currentUser.name)?.boostUsed)
+    ? Boolean(currentParticipant?.hasBoost ?? findCurrentSourceParticipant(entry.participants ?? [], currentUser)?.boostUsed)
     : Boolean((entry.participants ?? []).some((participant) => participant.boostUsed));
-  const balanceChanges = mapBalanceChanges(entry.participants ?? []);
-  const userBalanceDelta = currentUser
-    ? (entry.participants ?? []).find((participant) => participant.playerExternalId === currentUser.id || participant.username === currentUser.name)?.balanceDelta ?? 0
-    : winnerBalanceDelta(entry.participants ?? [], winner?.id);
+  const finance = mapRoundFinance(entry, participants, winner, currentUser);
 
   return {
     id: entry.id,
@@ -25,21 +23,41 @@ export function journalEntryToRound(entry: JournalEntryDto, currentUser?: TestUs
     roomTitle: `Комната ${publicIdFromRoomId(entry.roomId)}`,
     mode: modeFromBackendMechanic(entry.gameMechanic),
     startedAt: entry.createdAt ?? new Date().toISOString(),
+    maxPlayers: entry.maxPlayers,
     entryCost: entry.entryCost ?? 0,
+    boostAllowed: entry.boostAllowed,
     boostUsed,
-    boostCost: boostUsed ? 0 : 0,
-    boostImpact: entry.boostBonus ? `+${entry.boostBonus}% к весу участия` : "вес участия зафиксирован",
+    boostCost: boostCostFromEntry(entry),
+    boostImpact: boostImpactFromEntry(entry),
+    boostAbsoluteGainPercent: normalizePercent(entry.boostAbsoluteGainPercent),
     prizePoolPercent: 100,
     roomVolatility: 0,
     prizePool: entry.prizeFund ?? Math.max(0, (entry.entryCost ?? 0) * (entry.maxPlayers ?? participants.length)),
     participants,
-    winnerId: winner?.id ?? entry.winnerPlayerExternalId ?? participants[0]?.id ?? "winner",
+    winnerId: winner?.id ?? entry.winnerPlayerExternalId ?? `winner-unconfirmed:${entry.id}`,
     userId,
-    balanceDelta: userBalanceDelta,
-    balanceChanges,
+    balanceDelta: finance.userBalanceDelta,
+    balanceChanges: finance.balanceChanges,
     combination: combinationFromEntry(entry),
     auditTrail: auditTrailFromEntry(entry)
   };
+}
+
+function boostCostFromEntry(entry: JournalEntryDto) {
+  return nonNegativeNumber(entry.boostPrice)
+    ?? nonNegativeNumber(entry.boostCost)
+    ?? nonNegativeNumber(entry.bonusPrice)
+    ?? nonNegativeNumber(entry.bonusCost)
+    ?? 0;
+}
+
+function boostImpactFromEntry(entry: JournalEntryDto) {
+  const gain = normalizePercent(entry.boostAbsoluteGainPercent);
+  if (gain !== undefined) return `+${formatPercent(gain)}% к шансу победы`;
+  const weight = nonNegativeNumber(entry.boostBonus)
+    ?? nonNegativeNumber(entry.boostWeight)
+    ?? nonNegativeNumber(entry.bonusWeight);
+  return weight ? `+${formatPercent(weight)}% к весу участия` : "шанс участия зафиксирован";
 }
 
 export function journalEventsToAuditTrail(events: JournalEventDto[]) {
@@ -47,43 +65,188 @@ export function journalEventsToAuditTrail(events: JournalEventDto[]) {
 }
 
 function mapParticipants(players: JournalParticipantDto[]): Participant[] {
+  const seats = buildUniqueSeats(players);
   return players.map((player, index) => {
     const name = player.username ?? `Участник ${index + 1}`;
+    const seatNumber = seats[index];
     return {
-      id: player.playerExternalId ?? `journal-participant-${index}`,
+      id: participantId(player, seatNumber, index),
+      userId: player.playerExternalId,
       name,
       kind: player.bot ? "bot" : "user",
       avatar: name.slice(0, 1).toUpperCase(),
       hasBoost: Boolean(player.boostUsed),
-      weight: player.finalWeight ?? 1
+      weight: player.finalWeight ?? 1,
+      status: player.status,
+      winner: Boolean(player.winner || player.status === "WINNER"),
+      seatNumber
     };
   });
 }
 
-function findWinner(entry: JournalEntryDto, participants: Participant[]) {
-  return participants.find((participant) => participant.id === entry.winnerPlayerExternalId)
-    ?? participants.find((participant) => participant.name === entry.winnerPlayerName)
+function findWinner(entry: JournalEntryDto, participants: Participant[], sourcePlayers: JournalParticipantDto[]) {
+  const winnerSeat = normalizeWinnerSeat(entry.winnerPositionIndex, participants);
+  const sourceWinner = sourcePlayers.find((player) => player.winner || player.status === "WINNER");
+  const winnerExternalId = entry.winnerPlayerExternalId ?? sourceWinner?.playerExternalId;
+  const winnerName = entry.winnerPlayerName ?? sourceWinner?.username;
+  return participants.find((participant) => participant.seatNumber === winnerSeat)
+    ?? participants.find((participant) => participant.userId === winnerExternalId || participant.id === winnerExternalId)
+    ?? participants.find((participant) => participant.name === winnerName)
     ?? participants.find((participant) => {
-      const source = entry.participants?.find((player) => (player.playerExternalId ?? player.username) === (participant.id ?? participant.name));
+      const source = sourcePlayers.find((player) => player.playerExternalId === participant.userId || player.username === participant.name);
       return source?.winner;
     });
 }
 
+function normalizeWinnerFlags(participants: Participant[], winner: Participant | undefined) {
+  if (!winner) return participants.map((participant) => ({ ...participant, winner: false }));
+  return participants.map((participant) => ({
+    ...participant,
+    winner: participant.id === winner.id || (typeof winner.seatNumber === "number" && participant.seatNumber === winner.seatNumber)
+  }));
+}
+
+function mapRoundFinance(
+  entry: JournalEntryDto,
+  participants: Participant[],
+  winner: Participant | undefined,
+  currentUser?: TestUser
+) {
+  if (!currentUser) {
+    const balanceChanges = mapBalanceChanges(entry.participants ?? []);
+    return {
+      balanceChanges,
+      userBalanceDelta: winnerBalanceDelta(entry.participants ?? [], winner?.id)
+    };
+  }
+
+  const sourcePlayers = findCurrentSourceParticipants(entry.participants ?? [], currentUser);
+  const sourcePlayer = sourcePlayers[0];
+  const participant = participants.find((item) => isCurrentUserParticipant(item, currentUser))
+    ?? (sourcePlayer ? participants.find((item) => item.userId === sourcePlayer.playerExternalId || item.name === sourcePlayer.username) : undefined);
+  const currentParticipants = participants.filter((item) => isCurrentUserParticipant(item, currentUser));
+  const participantName = participant?.name ?? sourcePlayer?.username ?? currentUser.name;
+  const participantId = currentUser.id;
+  const kind = participant?.kind ?? (sourcePlayer?.bot ? "bot" : "user");
+  const boostUsed = Boolean(currentParticipants.some((item) => item.hasBoost) || sourcePlayers.some((item) => item.boostUsed));
+  const seatCount = Math.max(1, currentParticipants.length, sourcePlayers.length);
+  const boostedSeatCount = Math.max(currentParticipants.filter((item) => item.hasBoost).length, sourcePlayers.filter((item) => item.boostUsed).length);
+  const entryCost = positiveNumber(entry.entryCost) ?? 0;
+  const boostCost = boostUsed ? boostCostFromEntry(entry) * Math.max(1, boostedSeatCount) : 0;
+  const prizeFund = positiveNumber(entry.prizeFund) ?? 0;
+  const userWon = Boolean(
+    participant?.winner
+      || participant?.status?.toUpperCase() === "WINNER"
+      || sourcePlayer?.winner
+      || sourcePlayer?.status?.toUpperCase() === "WINNER"
+      || (winner && participant && (winner.id === participant.id || winner.userId === participant.userId || winner.seatNumber === participant.seatNumber))
+  );
+
+  const userChanges: RoundBalanceChange[] = [];
+  if (participant || sourcePlayer) {
+    if (entryCost > 0) {
+      userChanges.push({
+        participantId,
+        participantName,
+        kind,
+        delta: -entryCost * seatCount,
+        reason: "entry-reserve"
+      });
+    }
+    if (boostCost > 0) {
+      userChanges.push({
+        participantId,
+        participantName,
+        kind,
+        delta: -boostCost,
+        reason: "boost"
+      });
+    }
+    if (userWon && prizeFund > 0) {
+      userChanges.push({
+        participantId,
+        participantName,
+        kind,
+        delta: prizeFund,
+        reason: "prize"
+      });
+    }
+  }
+
+  const backendDelta = typeof sourcePlayer?.balanceDelta === "number" && Number.isFinite(sourcePlayer.balanceDelta)
+    ? sourcePlayer.balanceDelta
+    : undefined;
+  const derivedDelta = userChanges.reduce((sum, change) => sum + change.delta, 0);
+  const userBalanceDelta = backendDelta !== undefined && (backendDelta !== 0 || derivedDelta === 0)
+    ? backendDelta
+    : derivedDelta;
+  const currentNames = new Set([participantName, ...sourcePlayers.map((player) => player.username).filter((name): name is string => Boolean(name))]);
+  const otherChanges = mapBalanceChanges(entry.participants ?? []).filter((change) => !currentNames.has(change.participantName));
+
+  return {
+    balanceChanges: userChanges.length ? [...userChanges, ...otherChanges] : otherChanges,
+    userBalanceDelta
+  };
+}
+
 function mapBalanceChanges(players: JournalParticipantDto[]): RoundBalanceChange[] {
-  return players
+  const seats = buildUniqueSeats(players);
+  const changes: RoundBalanceChange[] = players
     .filter((player) => typeof player.balanceDelta === "number")
     .map((player, index) => ({
-      participantId: player.playerExternalId ?? `journal-participant-${index}`,
+      participantId: participantId(player, seats[index], index),
       participantName: player.username ?? `Участник ${index + 1}`,
       kind: player.bot ? "bot" : "user",
       delta: player.balanceDelta ?? 0,
       reason: (player.balanceDelta ?? 0) > 0 ? "prize" : "entry-reserve"
     }));
+  return aggregateBalanceChanges(changes);
+}
+
+function aggregateBalanceChanges(changes: RoundBalanceChange[]) {
+  const grouped = new Map<string, RoundBalanceChange>();
+  for (const change of changes) {
+    const key = `${change.participantName}:${change.kind}:${change.reason}`;
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, change);
+      continue;
+    }
+    grouped.set(key, {
+      ...existing,
+      delta: change.reason === "prize"
+        ? Math.max(existing.delta, change.delta)
+        : existing.delta + change.delta
+    });
+  }
+  return Array.from(grouped.values());
 }
 
 function winnerBalanceDelta(players: JournalParticipantDto[], winnerId?: string) {
   const winner = players.find((player) => player.playerExternalId === winnerId || player.winner);
   return winner?.balanceDelta ?? 0;
+}
+
+function findCurrentSourceParticipant(players: JournalParticipantDto[], currentUser: TestUser) {
+  return findCurrentSourceParticipants(players, currentUser)[0];
+}
+
+function findCurrentSourceParticipants(players: JournalParticipantDto[], currentUser: TestUser) {
+  return players.filter((participant) => participant.playerExternalId === currentUser.id || sameUserName(participant.username, currentUser));
+}
+
+function isCurrentUserParticipant(participant: Participant, currentUser: TestUser) {
+  return participant.userId === currentUser.id || participant.id === currentUser.id || sameUserName(participant.name, currentUser);
+}
+
+function sameUserName(value: string | undefined, currentUser: TestUser) {
+  if (!value) return false;
+  const normalized = normalizeUserName(value);
+  return normalized === normalizeUserName(currentUser.name) || normalized === normalizeUserName(currentUser.handle);
+}
+
+function normalizeUserName(value: string) {
+  return value.trim().replace(/^@/, "").toLowerCase();
 }
 
 function combinationFromEntry(entry: JournalEntryDto): WinningCombination {
@@ -117,4 +280,51 @@ function auditTrailFromEntry(entry: JournalEntryDto) {
 
 function publicIdFromRoomId(id: string) {
   return id.replace(/[^a-zA-Zа-яА-Я0-9]/g, "").slice(0, 6).toUpperCase() || "ROOM";
+}
+
+function participantId(player: JournalParticipantDto, seatNumber: number, index: number) {
+  return `${player.playerExternalId ?? player.username ?? "journal-participant"}-seat-${seatNumber}-order-${index + 1}`;
+}
+
+function buildUniqueSeats(players: JournalParticipantDto[]) {
+  const rawSeats = players.map((player) => player.positionIndex);
+  const zeroBased = rawSeats.some((seat) => seat === 0);
+  const used = new Set<number>();
+  return players.map((player, index) => {
+    const rawSeat = player.positionIndex;
+    const candidate = typeof rawSeat === "number" && Number.isFinite(rawSeat)
+      ? Math.max(1, zeroBased ? rawSeat + 1 : rawSeat)
+      : undefined;
+    if (candidate && !used.has(candidate)) {
+      used.add(candidate);
+      return candidate;
+    }
+    let fallback = index + 1;
+    while (used.has(fallback)) fallback += 1;
+    used.add(fallback);
+    return fallback;
+  });
+}
+
+function normalizeWinnerSeat(value: number | undefined, participants: Participant[]) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  const zeroBased = !participants.some((participant) => participant.seatNumber === value) && participants.some((participant) => participant.seatNumber === value + 1);
+  return Math.max(1, zeroBased ? value + 1 : value);
+}
+
+function positiveNumber(value?: number) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function nonNegativeNumber(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function normalizePercent(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function formatPercent(value: number) {
+  const rounded = Math.round(value * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }

@@ -18,24 +18,31 @@ export const visualGameModules: Record<GameMode, VisualGameModule> = {
   },
   "duel-clash": {
     id: "duel-clash",
-    title: "Дуэль арены",
+    title: "Дуэль шиншилл",
     phases: ["intro", "live", "suspense", "reveal", "result"],
     durationMs: 9800,
-    description: "Пиксельные бойцы обмениваются короткими атаками, выбывают один за другим и оставляют на арене одного победителя."
+    description: "Шиншиллы сходятся парами, проходят турнирную сетку и доводят битву до финального удара."
   },
   "claw-machine": {
     id: "claw-machine",
-    title: "Автомат с шарами",
+    title: "Призовой автомат",
     phases: ["intro", "live", "suspense", "reveal", "result"],
     durationMs: 16800,
-    description: "Аркадный кран с драматургией почти-удачных попыток и финальным захватом капсулы победителя."
+    description: "Аркадный автомат с ярким краном, ложной попыткой и финальным выпадением победной капсулы."
   },
   "slot-reveal": {
     id: "slot-reveal",
-    title: "Раскрытие символов",
+    title: "Магия имени",
     phases: ["intro", "live", "suspense", "reveal", "result"],
-    durationMs: 9800,
-    description: "Летающие карточки создают управляемый хаос, собирают ложное имя и только потом складывают настоящее имя победителя."
+    durationMs: 11800,
+    description: "Карты собирают чужие фрагменты, меняют порядок и в финале складывают имя победителя."
+  },
+  "chinchilla-race": {
+    id: "chinchilla-race",
+    title: "Гонки шиншилл",
+    phases: ["intro", "live", "suspense", "reveal", "result"],
+    durationMs: 15600,
+    description: "Премиальная гонка с живой драматургией, эффектными обгонами и финалом, который подтверждает backend."
   }
 };
 

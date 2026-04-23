@@ -51,8 +51,8 @@ const playerSchema = z.object({
 
 const schema = z.object({
   title: z.string().min(4, "Название слишком короткое"),
-  mode: z.enum(["arena-sprint", "claw-machine", "duel-clash", "slot-reveal"]),
-  entryCost: z.coerce.number().min(1, "Укажите цену входа"),
+  mode: z.enum(["arena-sprint", "claw-machine", "duel-clash", "slot-reveal", "chinchilla-race"]),
+  entryCost: z.coerce.number().min(1000, "Цена входа должна быть не меньше 1000").max(10000, "Цена входа не может быть больше 10000"),
   seats: z.coerce.number().min(2, "Минимум 2 места").max(10, "Максимум 10 мест"),
   boostCost: z.coerce.number().min(0, "Цена буста не может быть отрицательной"),
   boostEnabled: z.boolean(),
@@ -67,7 +67,7 @@ const schema = z.object({
 });
 
 const defaults: RoomTemplateFormValues = {
-  title: "Гонка шаров: коронная трасса",
+  title: "",
   mode: "arena-sprint",
   entryCost: 1000,
   seats: 5,
@@ -136,7 +136,7 @@ export default function AdminConfiguratorPage() {
     mutationFn: (payload: RoomTemplateFormValues) => adminTemplateService.testConfig(payload),
     onMutate: () => {
       setErrorMessage(null);
-      setSuccessMessage("Анализ запущен. Проверяем конфигурацию на backend.");
+      setSuccessMessage("Анализ запущен. Проверяем конфигурацию.");
     },
     onSuccess: (result) => {
       setAnalysis(result);
@@ -199,13 +199,29 @@ export default function AdminConfiguratorPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => adminTemplateService.deleteTemplate(id),
-    onSuccess: async (_, deletedId) => {
-      if (editingId === deletedId) resetEditor();
+    mutationFn: async (template: RoomTemplate) => {
+      if (!template.id) throw new Error("Не удалось удалить шаблон: отсутствует id шаблона.");
+      await adminTemplateService.deleteTemplate(template.id);
+      return template.id;
+    },
+    onMutate: async (template) => {
+      setErrorMessage(null);
+      setSuccessMessage("Удаляем шаблон.");
+      await queryClient.cancelQueries({ queryKey: queryKeys.templates });
+      const previousTemplates = queryClient.getQueryData<RoomTemplate[]>(queryKeys.templates);
+      queryClient.setQueryData<RoomTemplate[]>(queryKeys.templates, (items) => items?.filter((item) => item.id !== template.id) ?? []);
+      return { previousTemplates };
+    },
+    onSuccess: async (_deletedId, template) => {
+      if (editingId === template.id) resetEditor();
       setSuccessMessage("Шаблон удален.");
       await invalidateTemplateQueries(queryClient);
     },
-    onError: (error) => setErrorMessage(getUserFriendlyError(error))
+    onError: (error, _template, context) => {
+      if (context?.previousTemplates) queryClient.setQueryData(queryKeys.templates, context.previousTemplates);
+      setSuccessMessage(null);
+      setErrorMessage(getUserFriendlyError(error));
+    }
   });
 
   const toggleMutation = useMutation({
@@ -267,9 +283,6 @@ export default function AdminConfiguratorPage() {
         <div className="mx-auto max-w-[1460px] space-y-6">
           <AdminHero templatesCount={templatesQuery.data?.length ?? 0} />
 
-          {errorMessage ? <SystemMessage tone="critical" text={errorMessage} /> : null}
-          {successMessage ? <SystemMessage tone="good" text={successMessage} /> : null}
-
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(430px,0.92fr)] xl:items-start">
             <div ref={editorRef} className="scroll-mt-28 space-y-6">
               <Panel className="surface-solid relative overflow-hidden border-0 p-6 shadow-none before:hidden md:p-7">
@@ -301,7 +314,7 @@ export default function AdminConfiguratorPage() {
 
                   <section className="grid gap-4 md:grid-cols-2">
                     <Field label="Цена входа" error={form.formState.errors.entryCost?.message}>
-                      <input type="number" {...form.register("entryCost")} className="field" />
+                      <input type="number" min={1000} max={10000} {...form.register("entryCost")} className="field" />
                     </Field>
                     <Field label="Количество мест" error={form.formState.errors.seats?.message}>
                       <input type="number" {...form.register("seats", { onBlur: syncPlayersWithSeats })} className="field" />
@@ -361,6 +374,8 @@ export default function AdminConfiguratorPage() {
                     onDownloadReport={downloadReport}
                     analysisPending={testMutation.isPending}
                     reportPending={reportMutation.isPending}
+                    errorMessage={errorMessage}
+                    successMessage={successMessage}
                   />
                 </form>
               </Panel>
@@ -384,10 +399,10 @@ export default function AdminConfiguratorPage() {
             editingId={editingId}
             onEdit={startEditing}
             onDelete={(template) => {
-              if (window.confirm(`Удалить шаблон «${template.title}»?`)) deleteMutation.mutate(template.id);
+              if (window.confirm(`Удалить шаблон «${template.title}»?`)) deleteMutation.mutate(template);
             }}
             onToggle={(template) => toggleMutation.mutate({ template, visible: !(template.templateVisible !== false) })}
-            busyId={deleteMutation.variables ?? toggleMutation.variables?.template.id ?? null}
+            busyId={deleteMutation.variables?.id ?? toggleMutation.variables?.template.id ?? null}
           />
         </div>
       </AccessGuard>
@@ -409,7 +424,7 @@ function AdminHero({ templatesCount }: { templatesCount: number }) {
             <span className="brand-marker">шаблонов</span>.
           </h1>
           <p className="mt-4 max-w-2xl text-base leading-8 text-smoke md:text-lg">
-            Настройте комнату, проверьте экономику на backend-симуляции, подтвердите риски и только после этого публикуйте шаблон.
+            Настройте комнату, проверьте экономику, подтвердите риски и публикуйте готовый сценарий для игроков.
           </p>
         </div>
         <div className="rounded-[26px] bg-white/[0.055] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]">
@@ -427,9 +442,9 @@ function GameMechanicSelector({ value, onChange }: { value: GameMode; onChange: 
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-lg font-black tracking-[-0.03em] text-platinum">Игровая механика</p>
-          <p className="mt-1 text-sm text-muted">Frontend хранит стабильный ключ, backend получает свой raw value.</p>
+          <p className="mt-1 text-sm text-muted">Выберите, как будет выглядеть розыгрыш для игроков.</p>
         </div>
-        <span className="rounded-full bg-gold/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-gold">4 режима</span>
+        <span className="rounded-full bg-gold/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-gold">5 режимов</span>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         {Object.values(GAME_MECHANICS).map((mode, index) => (
@@ -484,7 +499,7 @@ function PlayersEditor({
             <UsersRound className="h-5 w-5 text-gold" />
             Игроки для симуляции
           </p>
-          <p className="mt-1 text-sm leading-6 text-muted">Эти участники нужны для backend-анализа и графика вероятностей.</p>
+          <p className="mt-1 text-sm leading-6 text-muted">Эти участники нужны для проверки вероятностей и баланса комнаты.</p>
         </div>
         <Button type="button" variant="secondary" onClick={() => append({ name: `Игрок ${fields.length + 1}`, boost: false })} disabled={fields.length >= 10}>
           <Plus className="mr-2 h-4 w-4" />
@@ -519,7 +534,9 @@ function SaveFlow({
   onRunAnalysis,
   onDownloadReport,
   analysisPending,
-  reportPending
+  reportPending,
+  errorMessage,
+  successMessage
 }: {
   analysis: ConfigTestResponse | null;
   warningsAccepted: boolean;
@@ -531,6 +548,8 @@ function SaveFlow({
   onDownloadReport: () => void;
   analysisPending: boolean;
   reportPending: boolean;
+  errorMessage: string | null;
+  successMessage: string | null;
 }) {
   const hasWarnings = Boolean(analysis?.warnings.length);
   return (
@@ -564,6 +583,8 @@ function SaveFlow({
         </label>
       ) : null}
       <div className="mt-4 grid gap-3">
+        {errorMessage ? <SystemMessage tone="critical" text={errorMessage} /> : null}
+        {successMessage ? <SystemMessage tone="good" text={successMessage} /> : null}
         <PublicationStatus analysis={analysis} canSave={canSave} />
       </div>
     </section>
@@ -598,10 +619,10 @@ function AnalysisPanel({ analysis, pending, players, simRounds }: { analysis: Co
       <div className="relative">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-gold">Аналитика backend</p>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-gold">Аналитика</p>
             <h3 className="mt-2 text-2xl font-black tracking-[-0.04em] text-platinum">Проверка конфигурации</h3>
             <p className="mt-2 text-sm leading-6 text-smoke">
-              Метрики, график, предупреждения и рекомендации появятся после запуска backend-анализа.
+              Метрики, график, предупреждения и рекомендации появятся после запуска проверки.
             </p>
           </div>
           {pending ? <Loader2 className="h-5 w-5 animate-spin text-gold" /> : <FileText className="h-5 w-5 text-gold" />}
@@ -617,8 +638,8 @@ function AnalysisPanel({ analysis, pending, players, simRounds }: { analysis: Co
             </h4>
             <p className="mt-2 text-sm leading-7 text-muted">
               {pending
-                ? "Backend считает конфигурацию. После завершения здесь появятся ошибки, предупреждения, метрики и график по игрокам."
-                : "Нажмите «Запустить анализ», чтобы получить backend-проверку. До этого графики и метрики не показываются, чтобы не смешивать настройку с результатом."}
+                ? "Идет расчет конфигурации. После завершения здесь появятся ошибки, предупреждения, метрики и график по игрокам."
+                : "Нажмите «Запустить анализ», чтобы получить проверку. До этого графики и метрики не показываются, чтобы не смешивать настройку с результатом."}
             </p>
           </div>
         ) : (

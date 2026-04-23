@@ -3,7 +3,7 @@ export type RoomStatus = "open" | "matching" | "ready" | "running" | "closed";
 export type RoomLifecyclePhase = "idle" | "reserved" | "countdown" | "bot-fill" | "launching" | "expired" | "error";
 export type ParticipantKind = "user" | "bot";
 export type RoundPhase = "intro" | "live" | "suspense" | "reveal" | "result";
-export type GameMode = "arena-sprint" | "duel-clash" | "claw-machine" | "slot-reveal";
+export type GameMode = "arena-sprint" | "duel-clash" | "claw-machine" | "slot-reveal" | "chinchilla-race";
 export type DemoRole = "player" | "expert" | "admin";
 export type RoomKind = "active" | "auto-created";
 
@@ -22,12 +22,16 @@ export type TestUser = {
 
 export type Participant = {
   id: string;
+  userId?: string;
   name: string;
   kind: ParticipantKind;
   avatar: string;
   vipTier?: VipTier;
   hasBoost: boolean;
   weight: number;
+  seatNumber?: number;
+  status?: string;
+  winner?: boolean;
 };
 
 export type WinningCombination = {
@@ -46,6 +50,9 @@ export type RoomConfig = {
   boostLabel: string;
   boostImpact: string;
   boostEnabled: boolean;
+  boostAbsoluteGainPercent?: number;
+  currentChancePercent?: number;
+  chanceWithBoostPercent?: number;
   prizePoolPercent: number;
   seats: number;
   reservedUntilSec: number;
@@ -55,6 +62,7 @@ export type RoomConfig = {
 export type RoomTemplate = RoomConfig & {
   id: string;
   templateVisible?: boolean;
+  prizeFund?: number;
   recommendedFor: VipTier[];
 };
 
@@ -65,11 +73,21 @@ export type Room = RoomConfig & {
   kind: RoomKind;
   sourceTemplateId?: string;
   status: RoomStatus;
+  backendStatus?: string;
+  timerSeconds?: number;
   occupied: number;
   prizePool: number;
   recommendedFor: VipTier[];
   fillRate: number;
   participants: Participant[];
+  selectedSeats?: number[];
+  firstPlayerJoinedAt?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  gameResultId?: string;
+  roundId?: string;
+  resultId?: string;
+  winnerPositionIndex?: number;
 };
 
 export type Round = {
@@ -79,10 +97,13 @@ export type Round = {
   roomTitle: string;
   mode: GameMode;
   startedAt: string;
+  maxPlayers?: number;
   entryCost: number;
+  boostAllowed?: boolean;
   boostUsed: boolean;
   boostCost: number;
   boostImpact: string;
+  boostAbsoluteGainPercent?: number;
   prizePoolPercent: number;
   roomVolatility: number;
   prizePool: number;

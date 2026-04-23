@@ -2,29 +2,43 @@
 
 import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import { Area, AreaChart, CartesianGrid, Dot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Activity, Gem, History, Trophy } from "lucide-react";
+import { Activity, Flame, Gem, History, Sparkles } from "lucide-react";
 import { AppFrame } from "@/components/layout/app-nav";
 import { Panel } from "@/components/ui/panel";
 import { BalanceBadge, VipBadge } from "@/components/domain/badges";
-import { WinningCombinationBlock } from "@/components/domain/winning-combination";
 import { HistoryRoundCard } from "@/components/domain/history-round-card";
+import { MascotLoading } from "@/components/domain/mascot-loading";
 import { useAppStore } from "@/lib/store/app-store";
 import { cn, formatBonus } from "@/lib/utils";
 import { ButtonLink } from "@/components/ui/button";
 import { journalService } from "@/src/features/journal/model/service";
 import { journalQueryKeys } from "@/src/features/journal/model/query-keys";
 import { getUserFriendlyError } from "@/src/shared/api/errors";
+import { isRoundWonByUser, uniqueRoundsById } from "@/src/features/journal/model/outcome";
+import type { WinStreakDto } from "@/src/features/journal/model/types";
 
 export default function ProfilePage() {
   const user = useAppStore((state) => state.user);
   const { data: userRounds = [], error: historyError, isLoading: historyLoading } = useQuery({
     queryKey: [...journalQueryKeys.me, user.id],
-    queryFn: () => journalService.getMyJournal(user)
+    queryFn: () => journalService.getMyJournal(user),
+    staleTime: 30_000,
+    refetchOnMount: false
   });
-  const wins = userRounds.filter((round) => round.winnerId === user.id).length;
-  const totalDelta = userRounds.reduce((sum, round) => sum + round.balanceDelta, 0);
-  const chart = userRounds.slice().reverse().map((round, index) => ({ name: `R${index + 1}`, delta: round.balanceDelta }));
+  const { data: winStreak, isLoading: streakLoading } = useQuery({
+    queryKey: journalQueryKeys.myWinStreak(user.id),
+    queryFn: () => journalService.getMyWinStreak(),
+    staleTime: 30_000,
+    refetchOnMount: false,
+    retry: false
+  });
+  const normalizedRounds = uniqueRoundsById(userRounds);
+  const wins = normalizedRounds.filter((round) => isRoundWonByUser(round, user.id)).length;
+  const winRate = normalizedRounds.length ? Math.round((wins / normalizedRounds.length) * 1000) / 10 : 0;
+  const totalDelta = normalizedRounds.reduce((sum, round) => sum + round.balanceDelta, 0);
+  const chart = normalizedRounds.slice().reverse().map((round, index) => ({ name: `R${index + 1}`, delta: round.balanceDelta }));
 
   return (
     <AppFrame>
@@ -69,9 +83,10 @@ export default function ProfilePage() {
               </div>
               <div className="mt-5 grid flex-1 gap-3 sm:grid-cols-3">
                 <SoftMetric label="Итог" value={`${totalDelta >= 0 ? "+" : ""}${formatBonus(totalDelta)}`} tone={totalDelta >= 0 ? "jade" : "ember"} />
-                <SoftMetric label="Раунды" value={`${userRounds.length}`} />
-                <SoftMetric label="Win-rate" value={userRounds.length ? `${Math.round((wins / userRounds.length) * 100)}%` : "0%"} tone="gold" />
+                <SoftMetric label="Раунды" value={`${normalizedRounds.length}`} />
+                <SoftMetric label="Win-rate" value={`${winRate.toFixed(winRate % 1 === 0 ? 0 : 1)}%`} tone="gold" />
               </div>
+              <WinStreakCard streak={winStreak ?? null} loading={streakLoading} />
               <ButtonLink href="/matchmaking" className="mt-5 w-full justify-center">Сыграть следующий раунд</ButtonLink>
             </div>
           </Panel>
@@ -124,43 +139,113 @@ export default function ProfilePage() {
           <div className="relative mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
               <SectionTitle icon={<History className="h-4 w-4" />} eyebrow="История участия" title="Последние игры" />
-              <p className="mt-2 max-w-3xl text-sm leading-7 text-smoke">Прямо в профиле видно, во что вы играли, кто выиграл, как изменился баланс и какая комбинация выпала.</p>
+              <p className="mt-2 max-w-3xl text-sm leading-7 text-smoke">Прямо в профиле видно, во что вы играли, кто выиграл и как изменился баланс.</p>
             </div>
             {userRounds.length > 0 ? <ButtonLink href="/history" variant="secondary">Открыть всю историю</ButtonLink> : null}
           </div>
 
           <div className="relative">
             {historyLoading ? (
-              <div className="rounded-[28px] bg-gold/8 p-6 text-sm text-smoke">Загружаем последние игры...</div>
+              <MascotLoading title="Шиншилла ищет последние игры..." description="Подгружаем историю профиля, места и итог по балансу." />
             ) : historyError ? (
               <div className="rounded-[28px] bg-ember/10 p-6 text-sm text-ember">{getUserFriendlyError(historyError)}</div>
             ) : userRounds.length > 0 ? (
               <div className="space-y-4">
-                {userRounds.slice(0, 2).map((round) => (
+                {normalizedRounds.slice(0, 2).map((round) => (
                   <HistoryRoundCard key={round.id} round={round} currentUserId={user.id} />
                 ))}
               </div>
             ) : (
-              <EmptyState title="История пока пуста" description="Когда вы сыграете первый раунд, здесь появятся карточки с участниками, победителем, итогом по балансу и выигрышной комбинацией." action="Сыграть" href="/lobby" />
+              <EmptyState title="История пока пуста" description="Когда вы сыграете первый раунд, здесь появятся карточки с участниками, победителем и итогом по балансу." action="Сыграть" href="/lobby" />
             )}
           </div>
         </Panel>
 
-        <Panel className="surface-solid relative overflow-hidden border-0 p-6 shadow-none before:hidden md:p-7">
-          <div className="pointer-events-none absolute -left-28 -bottom-32 h-96 w-96 rounded-full bg-[radial-gradient(circle,rgba(255,205,24,0.10),transparent_64%)]" />
-          <div className="relative mb-6">
-            <SectionTitle icon={<Trophy className="h-4 w-4" />} eyebrow="Комбинации" title="Сохраненные выигрышные комбинации" />
-          </div>
-          <div className="relative rounded-[30px] bg-[linear-gradient(145deg,rgba(255,205,24,0.08),rgba(255,255,255,0.026)_46%,rgba(10,11,15,0.9))] p-4 shadow-[0_22px_70px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.055)] md:p-5">
-            <div className="grid gap-5 lg:grid-cols-2">
-            {userRounds.length
-              ? userRounds.map((round) => <WinningCombinationBlock key={round.id} combination={round.combination} />)
-              : <EmptyState title="Комбинаций пока нет" description="Запустите первый раунд, и здесь появятся визуальные комбинации результата." action="Сыграть" href="/lobby" />}
-            </div>
-          </div>
-        </Panel>
       </div>
     </AppFrame>
+  );
+}
+
+function WinStreakCard({ streak, loading }: { streak: WinStreakDto | null; loading: boolean }) {
+  const active = Boolean(streak && streak.currentWinStreak > 0);
+  const latestDate = streak?.latestGameAt ? new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" }).format(new Date(streak.latestGameAt)) : null;
+  return (
+    <div className={cn(
+      "relative mt-5 overflow-hidden rounded-[34px] p-5 md:p-6 shadow-[0_26px_90px_rgba(0,0,0,0.30),inset_0_1px_0_rgba(255,255,255,0.065)]",
+      loading
+        ? "bg-white/[0.045]"
+        : active
+          ? "bg-[linear-gradient(135deg,rgba(255,205,24,0.30),rgba(255,122,104,0.24)_27%,rgba(123,60,255,0.16)_56%,rgba(255,255,255,0.04)),rgba(9,10,14,0.92)]"
+          : "bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02)),rgba(9,10,14,0.86)]"
+    )}>
+      <div className="pointer-events-none absolute inset-0 opacity-90">
+        <div className={cn(
+          "absolute -left-20 -top-20 h-72 w-72 rounded-full blur-3xl",
+          loading ? "bg-[radial-gradient(circle,rgba(255,255,255,0.16),transparent_68%)]" : active ? "bg-[radial-gradient(circle,rgba(255,205,24,0.52),transparent_64%)]" : "bg-[radial-gradient(circle,rgba(255,255,255,0.10),transparent_68%)]"
+        )} />
+        <div className={cn(
+          "absolute -right-12 top-0 h-64 w-64 rounded-full blur-3xl",
+          active ? "bg-[radial-gradient(circle,rgba(123,60,255,0.32),transparent_70%)]" : "bg-[radial-gradient(circle,rgba(255,255,255,0.06),transparent_70%)]"
+        )} />
+        {active ? <div className="absolute -left-8 top-6 text-[118px] leading-none opacity-35 blur-[1px]">🔥</div> : null}
+      </div>
+      <div className="relative grid gap-5 md:grid-cols-[minmax(0,1fr)_134px] md:items-center">
+        <div className="min-w-0">
+          <div className="inline-flex items-center gap-2 rounded-full bg-gold/14 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-gold shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+            <Flame className="h-3.5 w-3.5" />
+            Серия побед
+          </div>
+          <h3 className={cn("mt-2 text-[2.25rem] font-black leading-[0.92] tracking-[-0.06em] md:text-[2.7rem]", active ? "text-[#ffe35f]" : "text-platinum")}>
+            {loading ? "Считаем..." : active ? `${streak?.currentWinStreak} подряд` : "Победная серия ждёт"}
+          </h3>
+          <p className="mt-2 max-w-[34rem] text-sm leading-6 text-smoke">
+            {loading
+              ? "Шиншилла проверяет последние результаты."
+              : active
+                ? `Последняя победа${latestDate ? ` · ${latestDate}` : ""}. Серия держится прямо сейчас и выглядит очень горячо.`
+                : "Победная серия начнётся, когда первый подряд выигранный раунд закрепится в истории."}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {active ? (
+              <div className="inline-flex items-center gap-2 rounded-full bg-gold/12 px-3 py-1.5 text-xs font-black uppercase tracking-[0.14em] text-gold shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                <Sparkles className="h-3.5 w-3.5" />
+                Горячая форма
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-2 rounded-full bg-white/[0.06] px-3 py-1.5 text-xs font-black uppercase tracking-[0.14em] text-smoke shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                <Sparkles className="h-3.5 w-3.5" />
+                Серия собирается
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="relative mx-auto shrink-0 md:mx-0">
+          <div className={cn(
+            "absolute inset-0 -z-10 rounded-[28px] blur-2xl",
+            active ? "bg-[radial-gradient(circle,rgba(255,205,24,0.50),transparent_66%)]" : "bg-[radial-gradient(circle,rgba(255,255,255,0.08),transparent_68%)]"
+          )} />
+          <div className="flex flex-col items-center">
+            <motion.div
+              animate={active ? { y: [0, -7, 0], rotate: [0, -4, 0], scale: [1, 1.04, 1] } : { y: [0, -2, 0], scale: [1, 1.01, 1] }}
+              transition={{ duration: 3.6, repeat: Infinity, ease: "easeInOut" }}
+              className="relative h-[130px] w-[130px] overflow-hidden rounded-[34px] bg-[linear-gradient(180deg,rgba(255,205,24,0.26),rgba(255,122,104,0.10)_42%,rgba(255,255,255,0.04)),rgba(9,10,14,0.78)] p-3 shadow-[0_28px_68px_rgba(0,0,0,0.30),0_0_0_1px_rgba(255,205,24,0.15),inset_0_1px_0_rgba(255,255,255,0.08)]"
+            >
+              <div className="absolute inset-0 rounded-[34px] bg-[radial-gradient(circle_at_35%_30%,rgba(255,255,255,0.20),transparent_36%),radial-gradient(circle_at_50%_68%,rgba(255,205,24,0.26),transparent_62%),radial-gradient(circle_at_72%_18%,rgba(123,60,255,0.22),transparent_28%)]" />
+              <Image src="/mascots/shina.png" alt="" fill className="object-contain drop-shadow-[0_18px_42px_rgba(0,0,0,0.40)]" />
+            </motion.div>
+            <div className="mt-2 rounded-full bg-ink/72 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-gold shadow-[0_12px_26px_rgba(0,0,0,0.22)]">
+              <Flame className="mr-1 inline-block h-3 w-3" />
+              hot
+            </div>
+          </div>
+        </div>
+      </div>
+      {active && streak?.latestGameResultId ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <ButtonLink href={`/result/${streak.latestGameResultId}`} variant="secondary" className="justify-center">Открыть последний раунд</ButtonLink>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

@@ -2,34 +2,65 @@ import type { Participant, Room, RoomTemplate, TestUser } from "@/lib/domain/typ
 import { modeFromBackendMechanic } from "@/src/shared/config/game-mechanics";
 import type { CreateRoomRequest, RoomDto, RoomPlayerDto, RoomUiStatus } from "@/src/features/rooms/model/types";
 
-export function roomDtoToDomain(dto: RoomDto, currentUser?: TestUser, includeCurrentUser = false, template?: RoomTemplate): Room {
-  const participants = buildParticipants(dto, currentUser, includeCurrentUser);
+export function roomDtoToDomain(dto: RoomDto, currentUser?: TestUser, template?: RoomTemplate): Room {
+  const roomId = dto.roomId ?? dto.id ?? "";
+  const participants = buildParticipants(dto, currentUser);
   const maxPlayers = dto.maxPlayers ?? template?.seats ?? Math.max(participants.length, 1);
   const entryCost = dto.entryCost ?? template?.entryCost ?? 0;
   const boostEnabled = dto.boostAllowed ?? dto.bonusEnabled ?? template?.boostEnabled ?? false;
   const occupied = Math.max(dto.currentPlayers ?? 0, participants.length);
+  const boostAbsoluteGainPercent = normalizePercent(dto.boostAbsoluteGainPercent);
+  const currentChancePercent = normalizePercent(dto.currentChancePercent);
+  const chanceWithBoostPercent = normalizePercent(dto.chanceWithBoostPercent);
+  const boostCost = boostEnabled
+    ? nonNegativeNumber(dto.boostPrice)
+      ?? nonNegativeNumber(dto.boostCost)
+      ?? nonNegativeNumber(dto.bonusPrice)
+      ?? nonNegativeNumber(dto.bonusCost)
+      ?? template?.boostCost
+      ?? 0
+    : 0;
+  const boostWeight = nonNegativeNumber(dto.boostWeight) ?? nonNegativeNumber(dto.bonusWeight);
   return {
-    id: dto.id,
-    publicId: publicIdFromRoomId(dto.id),
-    inviteUrl: `/room/${dto.id}`,
+    id: roomId,
+    publicId: dto.shortId ?? publicIdFromRoomId(roomId),
+    inviteUrl: `/room/${roomId}`,
     kind: "active",
     status: mapRoomStatus(dto.status, occupied, maxPlayers),
+    backendStatus: dto.status,
+    timerSeconds: dto.timerSeconds ?? 60,
     occupied,
     participants,
-    prizePool: dto.prizeFund ?? entryCost * maxPlayers,
+    prizePool: positiveNumber(dto.prizeFund) ?? entryCost * maxPlayers,
     fillRate: maxPlayers > 0 ? Math.min(100, Math.round((occupied / maxPlayers) * 100)) : 0,
     title: dto.templateName ?? template?.title ?? `Комната ${maxPlayers}x${entryCost}`,
     mode: dto.gameMechanic ? modeFromBackendMechanic(dto.gameMechanic) : template?.mode ?? "arena-sprint",
     entryCost,
-    boostCost: boostEnabled ? dto.bonusPrice ?? template?.boostCost ?? Math.max(0, Math.round(entryCost * 0.2)) : 0,
+    boostCost,
     boostLabel: boostEnabled ? template?.boostLabel ?? "Буст участия" : "Буст отключен",
-    boostImpact: boostEnabled ? dto.bonusWeight ? `+${dto.bonusWeight}% к весу участия` : template?.boostImpact ?? "+10% к весу участия" : "буст отключен",
+    boostImpact: boostEnabled
+      ? boostAbsoluteGainPercent !== undefined
+        ? `+${formatPercent(boostAbsoluteGainPercent)}% к шансу победы`
+        : boostWeight
+          ? `+${formatPercent(boostWeight)}% к весу участия`
+          : template?.boostImpact ?? "+10% к весу участия"
+      : "буст отключен",
     boostEnabled,
+    boostAbsoluteGainPercent,
+    currentChancePercent,
+    chanceWithBoostPercent,
     prizePoolPercent: template?.prizePoolPercent ?? 100,
     seats: maxPlayers,
-    reservedUntilSec: remainingSeconds(dto.createdAt, dto.timerSeconds ?? 60),
+    reservedUntilSec: roomRemainingSeconds(dto),
     volatility: template?.volatility ?? 62,
-    recommendedFor: template?.recommendedFor ?? ["Gold", "Platinum", "Black Diamond"]
+    recommendedFor: template?.recommendedFor ?? ["Gold", "Platinum", "Black Diamond"],
+    firstPlayerJoinedAt: dto.firstPlayerJoinedAt,
+    startedAt: dto.startedAt,
+    finishedAt: dto.finishedAt,
+    gameResultId: dto.gameResultId,
+    roundId: dto.roundId,
+    resultId: dto.resultId,
+    winnerPositionIndex: roomWinnerSeat(dto)
   };
 }
 
@@ -39,59 +70,71 @@ export function roomTemplateToCreateRequest(params: { id: string }): CreateRoomR
   };
 }
 
-function buildParticipants(dto: RoomDto, currentUser?: TestUser, includeCurrentUser = false): Participant[] {
+function buildParticipants(dto: RoomDto, currentUser?: TestUser): Participant[] {
   const sourcePlayers = dto.players ?? dto.participants ?? [];
-  const participants: Participant[] = sourcePlayers.map((player, index) => playerDtoToParticipant(player, dto.id, index, currentUser));
-  if (includeCurrentUser && currentUser) {
-    const existingIndex = participants.findIndex((participant) => participant.id === currentUser.id);
-    if (existingIndex >= 0) participants[existingIndex] = { ...participants[existingIndex], ...currentUserParticipant(currentUser), hasBoost: participants[existingIndex].hasBoost };
-    else if (participants.length > 0 && isAnonymousParticipant(participants[0])) participants[0] = currentUserParticipant(currentUser);
-    else participants.unshift(currentUserParticipant(currentUser));
-  }
-
-  const anonymousCount = Math.max(0, (dto.currentPlayers ?? 0) - participants.length);
-  for (let index = 0; index < anonymousCount; index += 1) {
-    participants.push({
-      id: `player-${dto.id}-${index}`,
-      name: `Игрок ${index + 1}`,
-      kind: "user",
-      avatar: "И",
-      hasBoost: false,
-      weight: 1
-    });
-  }
+  const roomId = dto.roomId ?? dto.id ?? "room";
+  const seats = buildUniqueRoomSeats(sourcePlayers);
+  const participants: Participant[] = sourcePlayers.map((player, index) => playerDtoToParticipant(player, roomId, index, currentUser, seats[index]));
 
   return participants.slice(0, dto.maxPlayers ?? participants.length);
 }
 
-function mapRoomStatus(status: string, occupied: number, maxPlayers: number): RoomUiStatus {
-  if (status === "RUNNING") return "running";
-  if (status === "FINISHED" || status === "CLOSED" || status === "CANCELLED") return "closed";
+function mapRoomStatus(status: string | undefined, occupied: number, maxPlayers: number): RoomUiStatus {
+  if (status === "FINISHED" || status === "CANCELLED") return "closed";
   if (status === "FULL" || occupied >= maxPlayers) return "ready";
   if (status === "WAITING") return occupied > 0 ? "matching" : "open";
   return "open";
 }
 
-function playerDtoToParticipant(player: RoomPlayerDto, roomId: string, index: number, currentUser?: TestUser): Participant {
-  const id = player.userId ?? player.playerId ?? player.id ?? `player-${roomId}-${index}`;
-  if (currentUser && id === currentUser.id) {
-    return { ...currentUserParticipant(currentUser), hasBoost: player.boostUsed ?? player.bonusUsed ?? false, weight: player.weight ?? 1 };
+function playerDtoToParticipant(player: RoomPlayerDto, roomId: string, index: number, currentUser: TestUser | undefined, seatNumber: number | undefined): Participant {
+  const userId = player.userId ?? player.playerId ?? player.id;
+  const id = participantId(roomId, userId, seatNumber, index);
+  if (currentUser && userId === currentUser.id) {
+    return {
+      ...currentUserParticipant(currentUser, id),
+      userId: currentUser.id,
+      hasBoost: player.boostUsed ?? player.bonusUsed ?? false,
+      weight: player.weight ?? 1,
+      seatNumber,
+      status: player.status,
+      winner: player.winner
+    };
   }
-  const name = player.username ?? player.displayName ?? player.name ?? `Игрок ${index + 1}`;
+  const name = player.username ?? player.displayName ?? player.name ?? "Участник";
   const isBot = player.bot ?? player.isBot ?? false;
   return {
     id,
+    userId,
     name,
     kind: isBot ? "bot" : "user",
     avatar: name.slice(0, 1).toUpperCase(),
     hasBoost: player.boostUsed ?? player.bonusUsed ?? false,
-    weight: player.weight ?? 1
+    weight: player.weight ?? 1,
+    seatNumber,
+    status: player.status,
+    winner: player.winner
   };
 }
 
-function currentUserParticipant(currentUser: TestUser): Participant {
+function rawPlayerSeatNumber(player: RoomPlayerDto) {
+  return player.seatNumber
+    ?? player.positionIndex
+    ?? player.playerOrder
+    ?? player.seat
+    ?? player.seatIndex
+    ?? player.place;
+}
+
+function roomWinnerSeat(dto: RoomDto) {
+  return normalizeSeatNumber(dto.winnerPositionIndex
+    ?? dto.winnerSeatNumber
+    ?? dto.winnerSeat);
+}
+
+function currentUserParticipant(currentUser: TestUser, id: string): Participant {
   return {
-    id: currentUser.id,
+    id,
+    userId: currentUser.id,
     name: currentUser.name,
     kind: "user",
     avatar: currentUser.avatar,
@@ -101,17 +144,69 @@ function currentUserParticipant(currentUser: TestUser): Participant {
   };
 }
 
+function participantId(roomId: string, userId: string | undefined, seatNumber: number | undefined, index: number) {
+  const owner = userId ?? `participant-${index}`;
+  const seat = typeof seatNumber === "number" ? `seat-${seatNumber}` : `order-${index + 1}`;
+  return `${roomId}-${owner}-${seat}`;
+}
+
 function publicIdFromRoomId(id: string) {
   return id.replace(/[^a-zA-Zа-яА-Я0-9]/g, "").slice(0, 6).toUpperCase() || "ROOM";
 }
 
-function remainingSeconds(createdAt: string, timerSeconds: number) {
-  const createdAtMs = Date.parse(createdAt);
-  if (!Number.isFinite(createdAtMs)) return timerSeconds;
-  const elapsed = Math.floor((Date.now() - createdAtMs) / 1000);
+function roomRemainingSeconds(dto: RoomDto) {
+  const timerSeconds = dto.timerSeconds ?? 60;
+  if (!dto.firstPlayerJoinedAt) return timerSeconds;
+
+  if (typeof dto.remainingSeconds === "number" && Number.isFinite(dto.remainingSeconds)) {
+    return Math.max(0, dto.remainingSeconds);
+  }
+
+  const firstJoinMs = Date.parse(dto.firstPlayerJoinedAt);
+  if (!Number.isFinite(firstJoinMs)) return timerSeconds;
+  const elapsed = Math.floor((Date.now() - firstJoinMs) / 1000);
   return Math.max(0, timerSeconds - elapsed);
 }
 
-function isAnonymousParticipant(participant: Participant) {
-  return /^Игрок \d+$/.test(participant.name) && participant.id.startsWith("player-");
+function normalizeSeatNumber(value?: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  return value <= 0 ? value + 1 : value;
+}
+
+function buildUniqueRoomSeats(players: RoomPlayerDto[]) {
+  const rawSeats = players.map(rawPlayerSeatNumber);
+  const zeroBased = rawSeats.some((seat) => seat === 0);
+  const used = new Set<number>();
+  return players.map((player, index) => {
+    const rawSeat = rawPlayerSeatNumber(player);
+    const candidate = typeof rawSeat === "number" && Number.isFinite(rawSeat)
+      ? Math.max(1, zeroBased ? rawSeat + 1 : rawSeat)
+      : undefined;
+    if (candidate && !used.has(candidate)) {
+      used.add(candidate);
+      return candidate;
+    }
+    let fallback = index + 1;
+    while (used.has(fallback)) fallback += 1;
+    used.add(fallback);
+    return fallback;
+  });
+}
+
+function normalizePercent(value?: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  return value;
+}
+
+function formatPercent(value: number) {
+  const rounded = Math.round(value * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function positiveNumber(value?: number) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function nonNegativeNumber(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }

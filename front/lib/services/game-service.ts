@@ -58,7 +58,7 @@ function materializeRoom(template: RoomTemplate, kind: Room["kind"] = "active") 
     status: "open" as const,
     occupied: 0,
     participants: [],
-    prizePool: template.entryCost * template.seats * (template.prizePoolPercent / 100),
+    prizePool: template.prizeFund ?? template.entryCost * template.seats * (template.prizePoolPercent / 100),
     fillRate: 0
   };
 }
@@ -118,6 +118,7 @@ export const gameService = {
       boostImpact: config.boostEnabled ? `+${config.boostWeight}% к весу участия` : "буст отключен",
       boostEnabled: config.boostEnabled,
       prizePoolPercent: config.prizePoolPercent,
+      prizeFund: config.entryCost * config.seats * (config.prizePoolPercent / 100),
       seats: config.seats,
       reservedUntilSec: config.botFillDelay,
       recommendedFor: ["Gold", "Platinum", "Black Diamond"],
@@ -143,6 +144,7 @@ export const gameService = {
       boostLabel: config.boostEnabled ? existing.boostLabel : "Буст отключен",
       boostImpact: config.boostEnabled ? `+${config.boostWeight}% к весу участия` : "буст отключен",
       prizePoolPercent: config.prizePoolPercent,
+      prizeFund: config.entryCost * config.seats * (config.prizePoolPercent / 100),
       reservedUntilSec: config.botFillDelay,
       volatility: config.volatility,
       templateVisible: config.templateVisible ?? existing.templateVisible ?? true
@@ -249,7 +251,7 @@ export const gameService = {
     room.participants = [participant, ...room.participants].slice(0, room.seats);
     room.occupied = room.participants.length;
     room.status = room.occupied >= room.seats ? "ready" : "matching";
-    room.prizePool = room.entryCost * room.seats * (room.prizePoolPercent / 100);
+    room.prizePool = room.prizePool ?? room.entryCost * room.seats * (room.prizePoolPercent / 100);
     syncActiveRoom(room);
     return clone(room);
   },
@@ -292,7 +294,7 @@ export const gameService = {
       participants: filled,
       occupied: filled.length,
       status: "ready" as const,
-      prizePool: room.entryCost * room.seats * (room.prizePoolPercent / 100)
+      prizePool: room.prizePool ?? room.entryCost * room.seats * (room.prizePoolPercent / 100)
     };
     syncActiveRoom(readyRoom);
     return clone(readyRoom);
@@ -326,7 +328,7 @@ export const gameService = {
         participantId: winner.id,
         participantName: winner.name,
         kind: winner.kind,
-        delta: room.entryCost * room.seats * (room.prizePoolPercent / 100),
+        delta: room.prizePool ?? room.entryCost * room.seats * (room.prizePoolPercent / 100),
         reason: "prize" as const
       }
     ];
@@ -343,7 +345,7 @@ export const gameService = {
       boostImpact: room.boostImpact,
       prizePoolPercent: room.prizePoolPercent,
       roomVolatility: room.volatility,
-      prizePool: room.entryCost * room.seats * (room.prizePoolPercent / 100),
+      prizePool: room.prizePool ?? room.entryCost * room.seats * (room.prizePoolPercent / 100),
       participants: filled,
       winnerId: winner.id,
       userId: user.id,
@@ -355,7 +357,7 @@ export const gameService = {
         userBoosted ? `буст:${room.boostCost}` : "буст:нет",
         `боты:${room.seats - room.occupied}`,
         "победитель:внешняя логика",
-        "комбинация:внешняя последовательность"
+        "слот:внешняя последовательность"
       ]
     };
     rounds.unshift(round);

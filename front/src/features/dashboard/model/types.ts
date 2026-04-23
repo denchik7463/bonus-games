@@ -3,6 +3,26 @@ export type DashboardMetricPointDto = {
   count: number;
 };
 
+export type DashboardMetricPointRawDto = Partial<DashboardMetricPointDto> & {
+  bucket?: string;
+  bucketStart?: string;
+  bucketEnd?: string;
+  dateTime?: string;
+  timestamp?: string;
+  generatedAt?: string;
+  createdAt?: string;
+  value?: number | string;
+  activePlayers?: number | string;
+  activeRooms?: number | string;
+  currentPlayers?: number | string;
+  currentRooms?: number | string;
+  roomCount?: number | string;
+  playerCount?: number | string;
+  total?: number | string;
+  rooms?: number | string;
+  players?: number | string;
+};
+
 export type PopularRoomTemplateDto = {
   templateId: string;
   templateName: string;

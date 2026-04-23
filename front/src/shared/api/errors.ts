@@ -36,10 +36,17 @@ export function normalizeApiError(error: unknown): ApiClientError {
 
 export function getUserFriendlyError(error: unknown) {
   const normalized = normalizeApiError(error);
+  const rawMessage = normalized.message.toLowerCase();
 
   if (normalized.code === "CONFLICT") return "Такое имя уже занято. Попробуйте другое.";
+  if (rawMessage.includes("active room template for requested parameters not found") || rawMessage.includes("requested parameters not found")) {
+    return "По выбранным параметрам сейчас нет подходящей комнаты. Попробуйте изменить стоимость входа, фонд или количество мест.";
+  }
   if (normalized.status === 401) return "Сессия истекла или логин/пароль неверные.";
   if (normalized.status === 403) return "Недостаточно прав для этого действия.";
+  if (normalized.status === 404) {
+    return "Ничего не найдено.";
+  }
   if (normalized.code === "NETWORK_ERROR") return "Backend сейчас недоступен. Проверьте, что сервер запущен и доступен из frontend.";
   if (normalized.code === "TIMEOUT") return "Backend слишком долго считает анализ. Попробуйте уменьшить число симуляций или повторить запрос.";
   if (normalized.code === "BACKEND_UNAVAILABLE") return "Backend не отвечает по адресу интеграции. Проверьте сервер или BACKEND_API_BASE_URL.";

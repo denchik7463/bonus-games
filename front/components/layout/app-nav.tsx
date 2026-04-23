@@ -19,7 +19,7 @@ const links = [
 const privilegedLinks = [
   { href: "/dashboard", label: "Дашборд", icon: BarChart3, roles: ["expert", "admin"] },
   { href: "/transparency", label: "Журнал", icon: Shield, roles: ["expert", "admin"] },
-  { href: "/admin/configurator", label: "Админ", icon: History, roles: ["admin"] }
+  { href: "/admin/configurator", label: "Конфигуратор", icon: History, roles: ["admin"] }
 ];
 
 export function AppNav() {

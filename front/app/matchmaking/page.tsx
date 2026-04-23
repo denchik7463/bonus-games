@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from "recharts";
-import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowRight, ChevronDown, Sparkles } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { AppFrame } from "@/components/layout/app-nav";
 import { Button } from "@/components/ui/button";
 import { SectionHeader } from "@/components/ui/panel";
@@ -15,42 +14,56 @@ import { roomApiService } from "@/src/features/rooms/model/service";
 import { getUserFriendlyError } from "@/src/shared/api/errors";
 import { roomQueryKeys } from "@/src/features/rooms/model/query-keys";
 import { roomTemplateQueryKeys } from "@/src/features/room-templates/model/query-keys";
-import { buildTemplateFilterOptions, findMatchingTemplates, getBoostCostOptions } from "@/src/features/room-templates/model/selectors";
+import { buildTemplateFilterOptions, getBoostCostOptions } from "@/src/features/room-templates/model/selectors";
 import { roomTemplateService } from "@/src/features/room-templates/model/service";
-import { profileToTestUser } from "@/src/features/auth/lib/profile-to-user";
-import { useAuthStore } from "@/src/features/auth/model/store";
+import type { Room } from "@/lib/domain/types";
 
 export default function MatchmakingPage() {
-  const router = useRouter();
+  const queryClient = useQueryClient();
   const user = useAppStore((state) => state.user);
-  const setActiveRoom = useAppStore((state) => state.setActiveRoom);
-  const updateUser = useAppStore((state) => state.updateUser);
-  const authSession = useAuthStore((state) => state.session);
-  const refreshProfile = useAuthStore((state) => state.refreshProfile);
   const [entryCost, setEntryCost] = useState<number | null>(null);
   const [seats, setSeats] = useState<number | null>(null);
+  const [prizeFund, setPrizeFund] = useState<number | null>(null);
   const [boostDesired, setBoostDesired] = useState<boolean | null>(null);
   const [boostCost, setBoostCost] = useState<number | null>(null);
+  const [seatsToBuy, setSeatsToBuy] = useState(1);
   const [searched, setSearched] = useState(false);
-  const [templateError, setTemplateError] = useState<string | null>(null);
-  const [templatePendingId, setTemplatePendingId] = useState<string | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchPending, setSearchPending] = useState(false);
+  const [searchRooms, setSearchRooms] = useState<Room[]>([]);
+  const [createdRoomId, setCreatedRoomId] = useState<string | null>(null);
   const { data: templates = [], isLoading: templatesLoading, error: templatesError } = useQuery({
     queryKey: roomTemplateQueryKeys.visible,
     queryFn: roomTemplateService.getVisibleTemplates
   });
+  const { data: initialRooms = [], isLoading: roomsLoading, error: roomsError } = useQuery({
+    queryKey: roomQueryKeys.waiting,
+    queryFn: roomApiService.getWaitingRooms,
+    refetchInterval: searched ? false : 3000,
+    refetchOnWindowFocus: true,
+    staleTime: 1000
+  });
 
   const filterOptions = useMemo(() => buildTemplateFilterOptions(templates), [templates]);
-  const priceOptions = filterOptions.entryCosts;
-  const seatOptions = filterOptions.seats;
-  const boostOptions = filterOptions.boostAllowed;
+  const roomFallbackOptions = useMemo(() => ({
+    entryCosts: Array.from(new Set(initialRooms.map((room) => room.entryCost))).filter(Number.isFinite).sort((a, b) => a - b),
+    prizeFunds: Array.from(new Set(initialRooms.map((room) => room.prizePool))).filter(Number.isFinite).sort((a, b) => a - b),
+    seats: Array.from(new Set(initialRooms.map((room) => room.seats))).filter(Number.isFinite).sort((a, b) => a - b),
+    boostAllowed: Array.from(new Set(initialRooms.map((room) => room.boostEnabled)))
+  }), [initialRooms]);
+  const priceOptions = filterOptions.entryCosts.length ? filterOptions.entryCosts : roomFallbackOptions.entryCosts;
+  const prizeFundOptions = filterOptions.prizeFunds.length ? filterOptions.prizeFunds : roomFallbackOptions.prizeFunds;
+  const seatOptions = filterOptions.seats.length ? filterOptions.seats : roomFallbackOptions.seats;
+  const boostOptions = filterOptions.boostAllowed.length ? filterOptions.boostAllowed : roomFallbackOptions.boostAllowed;
   const boostPriceOptions = useMemo(() => getBoostCostOptions(templates, { entryCost, seats }), [entryCost, seats, templates]);
 
   useEffect(() => {
-    if (!templates.length) return;
+    if (!templates.length && !initialRooms.length) return;
     setEntryCost((value) => value !== null && priceOptions.includes(value) ? value : priceOptions[0] ?? null);
+    setPrizeFund((value) => value !== null && prizeFundOptions.includes(value) ? value : prizeFundOptions[0] ?? null);
     setSeats((value) => value !== null && seatOptions.includes(value) ? value : seatOptions[0] ?? null);
     setBoostDesired((value) => value !== null && boostOptions.includes(value) ? value : boostOptions[0] ?? null);
-  }, [boostOptions, priceOptions, seatOptions, templates.length]);
+  }, [boostOptions, initialRooms.length, priceOptions, prizeFundOptions, seatOptions, templates.length]);
 
   useEffect(() => {
     if (boostDesired) {
@@ -62,46 +75,40 @@ export default function MatchmakingPage() {
 
   const boostReady = boostDesired === false || (boostDesired === true && boostCost !== null);
   const filtersReady = entryCost !== null && seats !== null && boostDesired !== null && boostReady;
-  const filteredRoomsQuery = useQuery({
-    queryKey: roomQueryKeys.filter({ entryCost, maxPlayers: seats, boostAllowed: boostDesired }),
-    queryFn: () => roomApiService.filterRooms({
-      entryCost: entryCost ?? undefined,
-      maxPlayers: seats ?? undefined,
-      boostAllowed: boostDesired ?? undefined
-    }),
-    enabled: searched && filtersReady
-  });
-  const filteredActiveRooms = filteredRoomsQuery.data ?? [];
-  const matchingTemplates = filtersReady ? findMatchingTemplates(templates, { entryCost, seats, boostEnabled: boostDesired, boostCost }) : [];
-  const fallbackTemplates = matchingTemplates.length ? matchingTemplates : templates;
+  const visibleRooms = searched ? searchRooms : initialRooms;
   const chart = [
     { subject: "Фонд", value: entryCost && seats ? entryCost * seats / 40 : 0 },
     { subject: "Заполнение", value: seats ? seats * 11 : 0 },
     { subject: "Буст", value: boostDesired ? 78 : 32 }
   ];
 
-  async function handleTemplateStart(templateId: string, templateEntryCost: number) {
-    setTemplateError(null);
-    if (user.balance < templateEntryCost) {
-      setTemplateError(`Недостаточно бонусных баллов: нужно ${formatBonus(templateEntryCost)}, на балансе ${formatBonus(user.balance)}.`);
+  async function handleSearch() {
+    if (!filtersReady) return;
+    setSearchError(null);
+    setSearchPending(true);
+    setSearched(true);
+    setCreatedRoomId(null);
+    const totalEntryCost = (entryCost ?? 0) * seatsToBuy;
+    if (user.balance < totalEntryCost) {
+      setSearchError(`Недостаточно бонусных баллов: нужно ${formatBonus(totalEntryCost)}, на балансе ${formatBonus(user.balance)}.`);
+      setSearchPending(false);
       return;
     }
-    setTemplatePendingId(templateId);
     try {
-      const template = templates.find((item) => item.id === templateId);
-      if (!template) throw new Error("Шаблон не найден.");
-      const room = await roomApiService.createAndJoinRoom(template, user);
-      setActiveRoom(room);
-      if (authSession) {
-        refreshProfile(authSession)
-          .then((profile) => updateUser(profileToTestUser(profile)))
-          .catch(() => undefined);
-      }
-      router.push(`/room/${room.id}`);
+      const room = await roomApiService.findRoom({
+        maxPlayers: seats ?? 2,
+        entryCost: entryCost ?? 0,
+        boostAllowed: Boolean(boostDesired),
+        seatsCount: seatsToBuy
+      }, user);
+      queryClient.removeQueries({ queryKey: roomQueryKeys.detail(room.id), exact: true });
+      setSearchRooms([room]);
+      const existedBeforeSearch = initialRooms.some((item) => item.id === room.id);
+      setCreatedRoomId(existedBeforeSearch ? null : room.id);
     } catch (error) {
-      setTemplateError(getUserFriendlyError(error));
+      setSearchError(matchmakingErrorMessage(error));
     } finally {
-      setTemplatePendingId(null);
+      setSearchPending(false);
     }
   }
 
@@ -123,7 +130,7 @@ export default function MatchmakingPage() {
             а мы покажем <span className="brand-marker">живые комнаты</span>.
           </h1>
           <p className="mt-5 max-w-2xl text-base leading-8 text-smoke md:text-lg">
-            Доступные значения приходят из шаблонов. Сначала ищем активные комнаты, а если их нет — предлагаем готовый сценарий для нового раунда.
+            Сначала показываем активные комнаты. Если подходящей нет, система создаст комнату по выбранным параметрам.
           </p>
         </div>
       </section>
@@ -133,12 +140,14 @@ export default function MatchmakingPage() {
           <div className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 rounded-full bg-[radial-gradient(circle,rgba(255,205,24,0.14),transparent_64%)]" />
           <div className="relative">
             <div className="mb-6">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-smoke">Фильтры из шаблонов</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-smoke">Фильтры комнаты</p>
               <h2 className="mt-2 text-3xl font-black tracking-[-0.045em] text-platinum">Соберите ритм игры</h2>
             </div>
             <div className="space-y-5">
               <PriceSelector options={priceOptions} value={entryCost} onChange={(value) => { setEntryCost(value); setSearched(false); }} />
+              <PrizeFundSelector options={prizeFundOptions} value={prizeFund} onChange={(value) => { setPrizeFund(value); setSearched(false); }} />
               <SeatSlider options={seatOptions} value={seats} onChange={(value) => { setSeats(value); setSearched(false); }} />
+              <SeatsToBuySelector value={seatsToBuy} max={Math.min(5, Math.max(1, Math.floor((seats ?? 2) / 2)))} onChange={(value) => { setSeatsToBuy(value); setSearched(false); }} />
               <BoostSelector
                 options={boostOptions}
                 priceOptions={boostPriceOptions}
@@ -147,8 +156,8 @@ export default function MatchmakingPage() {
                 onBoostChange={(value) => { setBoostDesired(value); setSearched(false); }}
                 onCostChange={(value) => { setBoostCost(value); setSearched(false); }}
               />
-              <Button onClick={() => setSearched(true)} className="w-full" disabled={!filtersReady}>
-                Найти активные комнаты
+              <Button onClick={handleSearch} className="w-full" disabled={!filtersReady || searchPending}>
+                {searchPending ? "Подбираем комнату..." : "Найти комнату"}
               </Button>
             </div>
           </div>
@@ -181,84 +190,78 @@ export default function MatchmakingPage() {
       </div>
 
       <section className="mt-8">
-        <SectionHeader eyebrow="Шаг 1" title="Активные комнаты" description="Сначала показываем уже существующие игровые сессии с выбранными параметрами." />
-        {templatesLoading ? (
+        <SectionHeader eyebrow={searched ? "Результат" : "Сейчас"} title={searched ? "Подходящие комнаты" : "Активные комнаты"} description={searched ? "Если свободной комнаты не было, система создала новую по выбранным параметрам." : "Доступные комнаты показываются сразу. Фильтры помогут сузить выбор."} />
+        {templatesLoading || roomsLoading ? (
           <div className="user-premium-card surface-solid rounded-[28px] p-6">
-            <h2 className="text-2xl font-black tracking-[-0.04em] text-platinum">Загружаем доступные параметры</h2>
-            <p className="mt-2 text-sm leading-7 text-smoke">Берем цены, места и бусты из опубликованных шаблонов backend.</p>
+            <h2 className="text-2xl font-black tracking-[-0.04em] text-platinum">Загружаем комнаты</h2>
+            <p className="mt-2 text-sm leading-7 text-smoke">Проверяем актуальные игровые сессии.</p>
           </div>
-        ) : templatesError ? (
+        ) : templatesError || roomsError ? (
           <div className="user-premium-card surface-solid rounded-[28px] p-6">
-            <h2 className="text-2xl font-black tracking-[-0.04em] text-platinum">Не удалось загрузить шаблоны</h2>
-            <p className="mt-2 text-sm leading-7 text-smoke">{getUserFriendlyError(templatesError)}</p>
+            <h2 className="text-2xl font-black tracking-[-0.04em] text-platinum">Не удалось загрузить комнаты</h2>
+            <p className="mt-2 text-sm leading-7 text-smoke">{getUserFriendlyError(templatesError ?? roomsError)}</p>
           </div>
-        ) : templates.length === 0 ? (
+        ) : searchError ? (
           <div className="user-premium-card surface-solid rounded-[28px] p-6">
-            <h2 className="text-2xl font-black tracking-[-0.04em] text-platinum">Нет опубликованных шаблонов</h2>
-            <p className="mt-2 text-sm leading-7 text-smoke">Подбор станет доступен после публикации хотя бы одного шаблона администратором.</p>
+            <h2 className="text-2xl font-black tracking-[-0.04em] text-platinum">Не удалось подобрать комнату</h2>
+            <p className="mt-2 text-sm leading-7 text-smoke">{searchError}</p>
           </div>
-        ) : !searched ? (
-          <div className="user-premium-card surface-solid rounded-[28px] p-6">
-            <h2 className="text-2xl font-black tracking-[-0.04em] text-platinum">Выберите фильтры и запустите поиск</h2>
-            <p className="mt-2 text-sm leading-7 text-smoke">Комнаты не создаются произвольно: фильтры основаны на опубликованных шаблонах.</p>
-          </div>
-        ) : filteredRoomsQuery.isLoading ? (
-          <div className="user-premium-card surface-solid rounded-[28px] p-6">
-            <h2 className="text-2xl font-black tracking-[-0.04em] text-platinum">Ищем активные комнаты</h2>
-            <p className="mt-2 text-sm leading-7 text-smoke">Проверяем backend по выбранным параметрам.</p>
-          </div>
-        ) : filteredRoomsQuery.error ? (
-          <div className="user-premium-card surface-solid rounded-[28px] p-6">
-            <h2 className="text-2xl font-black tracking-[-0.04em] text-platinum">Не удалось проверить активные комнаты</h2>
-            <p className="mt-2 text-sm leading-7 text-smoke">{getUserFriendlyError(filteredRoomsQuery.error)}</p>
-          </div>
-        ) : filteredActiveRooms.length ? (
-          <div className="grid gap-5 lg:grid-cols-2">{filteredActiveRooms.map((room) => <RoomCard key={room.id} room={room} />)}</div>
-        ) : (
-          <div className="user-premium-card surface-solid rounded-[30px] p-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div>
-                <h2 className="text-2xl font-black tracking-[-0.04em] text-platinum">Подходящих активных комнат нет</h2>
-                <p className="mt-2 max-w-2xl text-sm leading-7 text-smoke">Можно выбрать готовый шаблон комнаты. После выбора система создаст активную комнату с этими параметрами.</p>
-              </div>
-              <span className="inline-flex items-center gap-2 rounded-full bg-gold/10 px-4 py-2 text-sm font-semibold text-gold">
-                <Sparkles className="h-4 w-4" />
-                Шаблоны доступны
-              </span>
-            </div>
-            {templateError ? (
-              <div className="mt-5 flex items-start gap-3 rounded-[22px] bg-ember/10 p-4 text-sm text-ember">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                {templateError}
+        ) : visibleRooms.length ? (
+          <>
+            {createdRoomId ? (
+              <div className="mb-4 rounded-[24px] bg-jade/10 p-4 text-sm font-semibold text-jade">
+                Свободной комнаты не было, поэтому создана новая. Откройте ее и выберите места.
               </div>
             ) : null}
-            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {fallbackTemplates.map((template) => (
-                <button
-                  key={template.id}
-                  type="button"
-                  onClick={() => handleTemplateStart(template.id, template.entryCost)}
-                  disabled={templatePendingId === template.id}
-                  className="template-card group relative overflow-hidden rounded-[28px] p-5 text-left transition duration-200 hover:translate-y-[-2px] disabled:cursor-wait disabled:opacity-70"
-                >
-                  <p className="template-kicker mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-gold">Готовый сценарий</p>
-                  <h3 className="text-xl font-black tracking-[-0.04em] text-platinum">{template.title}</h3>
-                  <div className="mt-4 grid gap-2 text-sm text-smoke">
-                    <p>Цена: <span className="font-semibold text-platinum">{formatBonus(template.entryCost)}</span></p>
-                    <p>Участников: <span className="font-semibold text-platinum">{template.seats}</span></p>
-                    <p>Буст: <span className="font-semibold text-platinum">{template.boostEnabled ? "есть" : "нет"}</span></p>
-                  </div>
-                  <span className="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-2xl bg-gold px-5 py-2.5 text-sm font-extrabold text-ink shadow-glow">
-                    {templatePendingId === template.id ? "Готовим комнату..." : "Создать комнату"}
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </span>
-                </button>
-              ))}
-            </div>
+            <div className="grid gap-5 lg:grid-cols-2">{visibleRooms.map((room) => <RoomCard key={room.id} room={room} />)}</div>
+          </>
+        ) : (
+          <div className="user-premium-card surface-solid rounded-[28px] p-6">
+            <h2 className="text-2xl font-black tracking-[-0.04em] text-platinum">Активных комнат пока нет</h2>
+            <p className="mt-2 text-sm leading-7 text-smoke">Выберите параметры выше, и система создаст подходящую комнату.</p>
           </div>
         )}
       </section>
     </AppFrame>
+  );
+}
+
+function matchmakingErrorMessage(error: unknown) {
+  const message = getUserFriendlyError(error);
+  const normalized = message.toLowerCase();
+  if (normalized.includes("active room template") || normalized.includes("requested parameters")) {
+    return "По выбранным параметрам сейчас нет подходящей комнаты. Попробуйте изменить стоимость входа, фонд или количество мест.";
+  }
+  return message;
+}
+
+function SeatsToBuySelector({ value, max, onChange }: { value: number; max: number; onChange: (value: number) => void }) {
+  const safeMax = Math.max(1, Math.min(5, max));
+  return (
+    <div className="premium-filter-shell rounded-[26px] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-black tracking-[-0.02em] text-platinum">Сколько мест купить</p>
+          <p className="mt-1 text-xs text-muted">Можно купить до 5 мест, но не больше половины комнаты</p>
+        </div>
+        <span className="rounded-full bg-gold px-3 py-1 text-xs font-black text-ink">{value}</span>
+      </div>
+      <div className="flex gap-2">
+        {Array.from({ length: safeMax }, (_, index) => index + 1).map((count) => (
+          <button
+            key={count}
+            type="button"
+            onClick={() => onChange(count)}
+            className={cn(
+              "h-11 flex-1 rounded-2xl text-sm font-black transition",
+              value === count ? "bg-gold text-ink shadow-glow" : "bg-white/[0.065] text-smoke hover:bg-gold/10 hover:text-platinum"
+            )}
+          >
+            {count}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -269,9 +272,54 @@ function PriceSelector({ options, value, onChange }: { options: number[]; value:
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <p className="text-sm font-black tracking-[-0.02em] text-platinum">Цена входа</p>
-          <p className="mt-1 text-xs text-muted">Только цены из опубликованных шаблонов</p>
+          <p className="mt-1 text-xs text-muted">Доступные варианты входа</p>
         </div>
         {value ? <span className="rounded-full bg-gold px-3 py-1 text-xs font-black text-ink">{formatBonus(value)}</span> : null}
+      </div>
+      {compact ? (
+        <div className="flex flex-wrap gap-2">
+          {options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onChange(option)}
+              className={cn(
+                "rounded-2xl px-4 py-2 text-sm font-semibold transition",
+                value === option ? "bg-gold text-ink shadow-glow" : "bg-white/[0.065] text-smoke hover:bg-gold/10 hover:text-platinum"
+              )}
+            >
+              {formatBonus(option)}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <label className="relative block">
+          <select
+            value={value ?? ""}
+            onChange={(event) => onChange(Number(event.target.value))}
+            className="premium-select h-12 w-full appearance-none rounded-2xl px-4 pr-11 text-sm font-bold outline-none"
+          >
+            {options.map((option) => (
+              <option key={option} value={option}>{formatBonus(option)}</option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gold" />
+        </label>
+      )}
+    </div>
+  );
+}
+
+function PrizeFundSelector({ options, value, onChange }: { options: number[]; value: number | null; onChange: (value: number) => void }) {
+  const compact = options.length <= 5;
+  return (
+    <div className="premium-filter-shell rounded-[26px] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-black tracking-[-0.02em] text-platinum">Призовой фонд</p>
+          <p className="mt-1 text-xs text-muted">Сколько получит победитель</p>
+        </div>
+        {value ? <span className="rounded-full bg-gold px-3 py-1 text-xs font-black text-ink shadow-glow">{formatBonus(value)}</span> : null}
       </div>
       {compact ? (
         <div className="flex flex-wrap gap-2">

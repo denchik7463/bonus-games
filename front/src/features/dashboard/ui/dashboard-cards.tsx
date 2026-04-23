@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { Activity, BarChart3, Crown, DoorOpen, Gem, LayoutTemplate, UsersRound } from "lucide-react";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from "recharts";
 import { ButtonLink } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
 import type { DemoRole } from "@/lib/domain/types";
@@ -135,9 +136,10 @@ export function DashboardEmptyState({ message }: { message: string }) {
 }
 
 function TimelineChart({ title, description, data, color, icon }: { title: string; description: string; data: DashboardMetricPointDto[]; color: string; icon: React.ReactNode }) {
+  const multipleDays = hasMultipleDays(data);
   const chartData = data.map((point) => ({
     ...point,
-    label: formatShortTime(point.time)
+    label: formatBackendTimeLabel(point.time, multipleDays)
   }));
 
   return (
@@ -155,22 +157,69 @@ function TimelineChart({ title, description, data, color, icon }: { title: strin
       </div>
       <div className="relative h-[280px]">
         {chartData.length ? (
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData}>
-              <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="label" stroke="var(--chart-label)" tickLine={false} axisLine={false} />
-              <YAxis stroke="var(--chart-label)" tickLine={false} axisLine={false} width={32} />
-              <Tooltip contentStyle={{ background: "var(--tooltip-bg)", border: "none", borderRadius: 18, boxShadow: "var(--tooltip-shadow)" }} />
-              <Area type="monotone" dataKey="count" stroke={color} strokeWidth={3} fill={color} fillOpacity={0.16} />
-            </AreaChart>
-          </ResponsiveContainer>
+          <InlineTimelineChart data={chartData} color={color} title={title} />
         ) : (
           <div className="grid h-full place-items-center rounded-[24px] bg-white/[0.035] px-6 text-center">
-            <p className="max-w-sm text-sm font-semibold leading-6 text-smoke">Backend пока не вернул точки для этого графика.</p>
+            <p className="max-w-sm text-sm font-semibold leading-6 text-smoke">Для этого графика пока нет точек данных.</p>
           </div>
         )}
       </div>
     </Panel>
+  );
+}
+
+function InlineTimelineChart({
+  data,
+  color,
+  title
+}: {
+  data: Array<DashboardMetricPointDto & { label: string }>;
+  color: string;
+  title: string;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(720);
+  const height = 280;
+  const maxCount = Math.max(0, ...data.map((point) => point.count));
+  const yMax = Math.max(1, maxCount);
+  const allZero = maxCount === 0;
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+    const updateWidth = () => {
+      const nextWidth = element.clientWidth;
+      if (nextWidth > 0) setWidth(nextWidth);
+    };
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={containerRef} className="h-full w-full overflow-hidden rounded-[24px] bg-white/[0.025]">
+      <LineChart width={width} height={height} data={data} margin={{ top: 18, right: 18, bottom: 22, left: 4 }}>
+        <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
+        <XAxis
+          dataKey="label"
+          stroke="var(--chart-label)"
+          tickLine={false}
+          axisLine={false}
+          interval={Math.max(0, Math.ceil(data.length / 10) - 1)}
+          tick={{ fontSize: 11, fontWeight: 700 }}
+        />
+        <YAxis stroke="var(--chart-label)" tickLine={false} axisLine={false} width={36} allowDecimals={false} domain={[0, yMax]} ticks={allZero ? [0] : undefined} tick={{ fontSize: 11, fontWeight: 700 }} />
+        <Tooltip
+          cursor={{ stroke: color, strokeOpacity: 0.22, strokeWidth: 2 }}
+          contentStyle={{ background: "var(--tooltip-bg)", border: "none", borderRadius: 18, boxShadow: "var(--tooltip-shadow)" }}
+          formatter={(value) => [`${value}`, "Количество"]}
+          labelFormatter={(label) => `${title}: ${label}`}
+        />
+        <ReferenceLine y={0} stroke={color} strokeOpacity={0.55} strokeWidth={2} />
+        <Line type="linear" dataKey="count" stroke={color} strokeWidth={3} dot={{ r: 4, fill: color, strokeWidth: 0 }} activeDot={{ r: 6, fill: color, strokeWidth: 0 }} isAnimationActive={false} />
+      </LineChart>
+    </div>
   );
 }
 
@@ -198,10 +247,24 @@ function PanelGlow() {
   );
 }
 
-function formatShortTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+function formatBackendTimeLabel(value: string, includeDate: boolean) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/);
+  if (match) {
+    const [, , month, day, time] = match;
+    return includeDate ? `${day}.${month} ${time}` : time;
+  }
+  const plainTimeMatch = value.match(/\b(\d{2}:\d{2})\b/);
+  if (plainTimeMatch) return plainTimeMatch[1];
+  return value;
+}
+
+function hasMultipleDays(data: DashboardMetricPointDto[]) {
+  const days = new Set(
+    data
+      .map((point) => point.time.match(/^(\d{4}-\d{2}-\d{2})T/)?.[1])
+      .filter(Boolean)
+  );
+  return days.size > 1;
 }
 
 function formatDateTime(value: string) {

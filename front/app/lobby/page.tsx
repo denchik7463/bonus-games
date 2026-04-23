@@ -1,69 +1,27 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Clock, Sparkles, Trophy } from "lucide-react";
+import { ArrowRight, Clock, Sparkles, Trophy } from "lucide-react";
 import { AppFrame } from "@/components/layout/app-nav";
 import { ButtonLink } from "@/components/ui/button";
 import { Panel, SectionHeader } from "@/components/ui/panel";
 import { RoomCard } from "@/components/domain/room-card";
 import { useAppStore } from "@/lib/store/app-store";
 import { BalanceBadge, VipBadge } from "@/components/domain/badges";
-import { useRouter } from "next/navigation";
-import { formatBonus } from "@/lib/utils";
 import { roomApiService } from "@/src/features/rooms/model/service";
 import { getUserFriendlyError } from "@/src/shared/api/errors";
 import { roomQueryKeys } from "@/src/features/rooms/model/query-keys";
-import { roomTemplateQueryKeys } from "@/src/features/room-templates/model/query-keys";
-import { roomTemplateService } from "@/src/features/room-templates/model/service";
-import { profileToTestUser } from "@/src/features/auth/lib/profile-to-user";
-import { useAuthStore } from "@/src/features/auth/model/store";
 
 export default function LobbyPage() {
   const user = useAppStore((state) => state.user);
-  const setActiveRoom = useAppStore((state) => state.setActiveRoom);
-  const updateUser = useAppStore((state) => state.updateUser);
-  const authSession = useAuthStore((state) => state.session);
-  const refreshProfile = useAuthStore((state) => state.refreshProfile);
-  const router = useRouter();
-  const [templateError, setTemplateError] = useState<string | null>(null);
-  const [templatePendingId, setTemplatePendingId] = useState<string | null>(null);
-  const { data: rooms = [], error: roomsError } = useQuery({ queryKey: roomQueryKeys.waiting, queryFn: roomApiService.getWaitingRooms });
-  const {
-    data: templates = [],
-    error: templatesError,
-    isLoading: templatesLoading
-  } = useQuery({ queryKey: roomTemplateQueryKeys.visible, queryFn: roomTemplateService.getVisibleTemplates });
-
-  async function handleTemplateStart(templateId: string, entryCost: number) {
-    setTemplateError(null);
-
-    if (user.balance < entryCost) {
-      setTemplateError(
-        `Недостаточно бонусных баллов: для входа нужно ${formatBonus(entryCost)}, а на балансе сейчас ${formatBonus(user.balance)}. Выберите шаблон дешевле или другой тестовый профиль.`
-      );
-      return;
-    }
-
-    setTemplatePendingId(templateId);
-    try {
-      const template = templates.find((item) => item.id === templateId);
-      if (!template) throw new Error("Шаблон не найден.");
-      const room = await roomApiService.createAndJoinRoom(template, user);
-      setActiveRoom(room);
-      if (authSession) {
-        refreshProfile(authSession)
-          .then((profile) => updateUser(profileToTestUser(profile)))
-          .catch(() => undefined);
-      }
-      router.push(`/room/${room.id}`);
-    } catch (error) {
-      setTemplateError(getUserFriendlyError(error));
-    } finally {
-      setTemplatePendingId(null);
-    }
-  }
+  const { data: rooms = [], error: roomsError } = useQuery({
+    queryKey: roomQueryKeys.waiting,
+    queryFn: roomApiService.getWaitingRooms,
+    refetchInterval: 3000,
+    refetchOnWindowFocus: true,
+    staleTime: 1000
+  });
 
   return (
     <AppFrame>
@@ -91,7 +49,7 @@ export default function LobbyPage() {
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <ButtonLink href="/matchmaking">Быстрый подбор <ArrowRight className="ml-2 h-4 w-4" /></ButtonLink>
-            <ButtonLink href="#templates" variant="secondary">Шаблоны комнат</ButtonLink>
+            <ButtonLink href="/rooms" variant="secondary">Активные комнаты</ButtonLink>
           </div>
         </div>
       </section>
@@ -107,8 +65,8 @@ export default function LobbyPage() {
               <Clock className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-sm font-semibold text-platinum">Короткий цикл</p>
-              <p className="mt-1 text-sm leading-7 text-smoke">От входа до результата — компактно. Без “долго жду”, только действие.</p>
+              <p className="text-sm font-semibold text-platinum">Быстрый раунд</p>
+              <p className="mt-1 text-sm leading-7 text-smoke">Зашли, выбрали место и сразу ждете розыгрыш. Формат без долгого ожидания.</p>
             </div>
           </div>
           <div className="flex items-start gap-3 md:pl-2">
@@ -116,8 +74,8 @@ export default function LobbyPage() {
               <Sparkles className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-sm font-semibold text-platinum">Один буст</p>
-              <p className="mt-1 text-sm leading-7 text-smoke">Одно решение перед стартом — и дальше только шоу раскрытия.</p>
+              <p className="text-sm font-semibold text-platinum">Буст шанса</p>
+              <p className="mt-1 text-sm leading-7 text-smoke">Можно усилить выбранное место до старта. Это повышает шанс, но победу не гарантирует.</p>
             </div>
           </div>
           <div className="flex items-start gap-3 md:pl-2">
@@ -125,8 +83,8 @@ export default function LobbyPage() {
               <Trophy className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-sm font-semibold text-platinum">Комбинация</p>
-              <p className="mt-1 text-sm leading-7 text-smoke">Победа оставляет код — в результате и истории. Есть что собирать.</p>
+              <p className="text-sm font-semibold text-platinum">Понятный финал</p>
+              <p className="mt-1 text-sm leading-7 text-smoke">В конце видно, какое место выиграло и кто сидел на нем в этом раунде.</p>
             </div>
           </div>
         </div>
@@ -147,66 +105,9 @@ export default function LobbyPage() {
             <p className="mt-2 text-sm text-smoke">Запустите игру через подбор или выберите готовый шаблон.</p>
             <div className="mt-4 flex flex-wrap gap-3">
               <ButtonLink href="/matchmaking">Подбор</ButtonLink>
-              <ButtonLink href="#templates" variant="secondary">Шаблоны</ButtonLink>
+              <ButtonLink href="/rooms" variant="secondary">Все комнаты</ButtonLink>
             </div>
           </Panel>
-        )}
-      </section>
-
-      <section className="mt-10">
-        <div id="templates" />
-        <SectionHeader eyebrow="Один клик" title="Шаблоны комнат" description="Выберите сценарий — мы найдём подходящую комнату или создадим новую и сразу перенесём внутрь." />
-        {templateError ? (
-          <div className="mb-4 flex items-start gap-3 rounded-[24px] bg-[linear-gradient(135deg,rgba(255,78,78,0.14),rgba(255,205,24,0.08)),rgba(18,11,11,0.82)] px-5 py-4 shadow-[0_22px_70px_rgba(0,0,0,0.32)]">
-            <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-ember/15 text-ember">
-              <AlertTriangle className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="text-sm font-black tracking-[-0.02em] text-platinum">Шаблон не запущен</p>
-              <p className="mt-1 text-sm leading-6 text-smoke">{templateError}</p>
-            </div>
-          </div>
-        ) : null}
-        {templatesLoading ? (
-          <Panel>Загружаем шаблоны...</Panel>
-        ) : templatesError ? (
-          <Panel>
-            <h2 className="text-2xl font-black tracking-[-0.04em] text-platinum">Не удалось загрузить шаблоны</h2>
-            <p className="mt-2 text-sm text-smoke">{getUserFriendlyError(templatesError)}</p>
-          </Panel>
-        ) : templates.length === 0 ? (
-          <Panel>
-            <h2 className="text-2xl font-black tracking-[-0.04em] text-platinum">Опубликованных шаблонов пока нет</h2>
-            <p className="mt-2 text-sm text-smoke">Администратор может создать и опубликовать шаблон в конфигураторе.</p>
-          </Panel>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {templates.map((template) => (
-              <button
-                key={template.id}
-                onClick={() => handleTemplateStart(template.id, template.entryCost)}
-                disabled={templatePendingId === template.id}
-                className="template-card group relative overflow-hidden rounded-[28px] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.012)),rgba(8,10,14,0.9)] p-5 text-left shadow-[0_26px_80px_rgba(0,0,0,0.38)] transition duration-200 hover:translate-y-[-2px] disabled:cursor-wait disabled:opacity-70"
-              >
-                <div className="absolute inset-0 opacity-0 transition duration-200 group-hover:opacity-100">
-                  <div className="absolute -left-24 -top-24 h-64 w-64 rounded-full bg-[radial-gradient(circle,rgba(255,205,24,0.18),transparent_62%)]" />
-                  <div className="absolute -right-28 top-10 h-72 w-72 rounded-full bg-[radial-gradient(circle,rgba(123,60,255,0.14),transparent_62%)]" />
-                </div>
-                <p className="template-kicker relative mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-gold/90">Готовый сценарий</p>
-                <h3 className="relative text-xl font-black tracking-[-0.04em] text-platinum">{template.title}</h3>
-                <div className="mt-4 space-y-2 text-sm text-smoke">
-                  <p><span className="text-smoke">Цена:</span> <span className="font-semibold text-platinum">{template.entryCost}</span></p>
-                  <p><span className="text-smoke">Участников:</span> <span className="font-semibold text-platinum">{template.seats}</span></p>
-                  <p><span className="text-smoke">Буст:</span> <span className="font-semibold text-platinum">{template.boostEnabled ? "есть" : "нет"}</span></p>
-                </div>
-                <div className="mt-4">
-                  <span className="inline-flex min-h-11 w-full items-center justify-center rounded-2xl bg-gold px-5 py-2.5 text-sm font-extrabold tracking-[-0.01em] text-ink shadow-glow transition duration-200 group-hover:bg-[#ffd84a]">
-                    {templatePendingId === template.id ? "Готовим комнату..." : "Играть по шаблону"}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
         )}
       </section>
     </AppFrame>

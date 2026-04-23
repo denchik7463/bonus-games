@@ -10,16 +10,18 @@ import type {
 
 export function roomTemplateDtoToDomain(dto: RoomTemplateDto): RoomTemplate {
   const mode = modeFromBackendMechanic(dto.gameMechanic);
+  const id = dto.id ?? dto.templateId ?? "";
   return {
-    id: dto.id,
+    id,
     title: dto.templateName,
     mode,
     entryCost: dto.entryCost,
+    prizeFund: positiveNumber(dto.prizeFund) ?? Math.round(dto.entryCost * dto.maxPlayers * ((dto.winnerPercent ?? 80) / 100)),
     boostCost: dto.bonusEnabled ? dto.bonusPrice : 0,
     boostLabel: dto.bonusEnabled ? "Буст участия" : "Буст отключен",
     boostImpact: dto.bonusEnabled ? `+${dto.bonusWeight}% к весу участия` : "буст отключен",
     boostEnabled: dto.bonusEnabled,
-    prizePoolPercent: 80,
+    prizePoolPercent: dto.winnerPercent ?? 80,
     seats: dto.maxPlayers,
     reservedUntilSec: 60,
     volatility: 62,
@@ -37,6 +39,7 @@ export function formValuesToCreateRequest(values: RoomTemplateFormValues): Creat
     bonusPrice: values.boostEnabled ? values.boostCost : 0,
     bonusWeight: values.boostEnabled ? values.boostWeight : 0,
     maxPlayers: values.seats,
+    winnerPercent: values.prizePoolPercent,
     gameMechanic: backendMechanicFromMode(values.mode)
   };
 }
@@ -117,4 +120,8 @@ function normalizePlayers(players: RoomTemplateFormValues["players"], seats: num
     name: player.name.trim() || `Игрок ${index + 1}`,
     boost: Boolean(player.boost)
   }));
+}
+
+function positiveNumber(value?: number) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }

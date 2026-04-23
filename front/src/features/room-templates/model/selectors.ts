@@ -2,6 +2,7 @@ import type { RoomTemplate } from "@/lib/domain/types";
 
 export type RoomTemplateFilterOptions = {
   entryCosts: number[];
+  prizeFunds: number[];
   seats: number[];
   boostAllowed: boolean[];
   boostCosts: number[];
@@ -15,6 +16,7 @@ export function buildTemplateFilterOptions(templates: RoomTemplate[]): RoomTempl
   const visible = getVisibleTemplates(templates);
   return {
     entryCosts: uniqueNumbers(visible.map((template) => template.entryCost)),
+    prizeFunds: uniqueNumbers(visible.map((template) => template.prizeFund ?? template.entryCost * template.seats * (template.prizePoolPercent / 100))),
     seats: uniqueNumbers(visible.map((template) => template.seats)),
     boostAllowed: Array.from(new Set(visible.map((template) => template.boostEnabled))),
     boostCosts: uniqueNumbers(visible.filter((template) => template.boostEnabled).map((template) => template.boostCost))

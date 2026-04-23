@@ -10,7 +10,13 @@ import { getUserFriendlyError } from "@/src/shared/api/errors";
 import { roomQueryKeys } from "@/src/features/rooms/model/query-keys";
 
 export default function RoomsPage() {
-  const { data: activeRooms = [], isLoading, error } = useQuery({ queryKey: roomQueryKeys.waiting, queryFn: roomApiService.getWaitingRooms });
+  const { data: activeRooms = [], isLoading, error } = useQuery({
+    queryKey: roomQueryKeys.waiting,
+    queryFn: roomApiService.getWaitingRooms,
+    refetchInterval: 3000,
+    refetchOnWindowFocus: true,
+    staleTime: 1000
+  });
 
   return (
     <AppFrame>

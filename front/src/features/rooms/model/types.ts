@@ -16,10 +16,22 @@ export type RoomPlayerDto = {
   boostUsed?: boolean;
   bonusUsed?: boolean;
   weight?: number;
+  playerOrder?: number;
+  seatNumber?: number;
+  positionIndex?: number;
+  seat?: number;
+  seatIndex?: number;
+  place?: number;
+  winner?: boolean;
+  status?: string;
+  joinTime?: string;
+  boostReservationId?: string;
 };
 
 export type RoomDto = {
-  id: string;
+  id?: string;
+  roomId?: string;
+  shortId?: string;
   templateId?: string;
   templateName?: string;
   maxPlayers?: number;
@@ -27,14 +39,32 @@ export type RoomDto = {
   prizeFund?: number;
   bonusEnabled?: boolean;
   bonusPrice?: number;
+  bonusCost?: number;
+  boostPrice?: number;
+  boostCost?: number;
   bonusWeight?: number;
+  boostWeight?: number;
+  currentChancePercent?: number;
+  chanceWithBoostPercent?: number;
+  boostAbsoluteGainPercent?: number;
   boostAllowed?: boolean;
   timerSeconds?: number;
-  status: BackendRoomStatus;
+  status?: BackendRoomStatus;
   currentPlayers?: number;
   botCount?: number;
-  createdAt: string;
+  createdAt?: string;
+  firstPlayerJoinedAt?: string | null;
+  startedAt?: string | null;
   finishedAt?: string | null;
+  remainingSeconds?: number;
+  gameResultId?: string;
+  roundId?: string;
+  resultId?: string;
+  winnerPositionIndex?: number;
+  winnerSeatNumber?: number;
+  winnerSeat?: number;
+  winnerPlayerExternalId?: string;
+  winnerPlayerName?: string;
   gameMechanic?: BackendGameMechanic | string;
   players?: RoomPlayerDto[];
   participants?: RoomPlayerDto[];
@@ -44,8 +74,13 @@ export type CreateRoomRequest = {
   templateId: string;
 };
 
-export type JoinByTemplateRequest = {
-  templateId: string;
+export type FindRoomRequest = {
+  templateId?: string;
+  maxPlayers: number;
+  entryCost: number;
+  boostAllowed: boolean;
+  seats?: number[];
+  seatsCount?: number;
 };
 
 export type FilterRoomsParams = {
@@ -56,7 +91,13 @@ export type FilterRoomsParams = {
 
 export type JoinRoomParams = {
   roomId: string;
-  boostUsed?: boolean;
+  seats?: number[];
+  seatsCount?: number;
+};
+
+export type SimilarRoomRecommendationsParams = {
+  priceDelta: number;
+  limit: number;
 };
 
 export type RoomJoinResult = {
@@ -65,6 +106,7 @@ export type RoomJoinResult = {
 
 export type ActivateBoostParams = {
   roomId: string;
+  seatNumber: number;
 };
 
 export type FinishRoomRequest = {
@@ -80,12 +122,24 @@ export type CancelRoomParams = {
 export type RoomEventDto = {
   id?: string;
   roomId?: string;
+  gameResultId?: string;
+  roundId?: string;
+  resultId?: string;
   type?: string;
   eventType?: string;
+  eventTitle?: string;
   message?: string;
   payload?: unknown;
+  payloadJson?: string;
   createdAt?: string;
   timestamp?: string;
+};
+
+export type RoomWsEventDto = {
+  type: "ROOM_STATE" | "ROOM_EVENTS" | string;
+  roomId: string;
+  payload: RoomDto | RoomEventDto[] | unknown;
+  sentAt?: string;
 };
 
 export type RoomUiStatus = DomainRoomStatus;

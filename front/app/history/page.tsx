@@ -5,21 +5,26 @@ import { History, Sparkles, Trophy } from "lucide-react";
 import { AppFrame } from "@/components/layout/app-nav";
 import { Panel } from "@/components/ui/panel";
 import { HistoryRoundCard } from "@/components/domain/history-round-card";
+import { MascotLoading } from "@/components/domain/mascot-loading";
 import { useAppStore } from "@/lib/store/app-store";
 import { ButtonLink } from "@/components/ui/button";
 import { formatBonus } from "@/lib/utils";
 import { journalService } from "@/src/features/journal/model/service";
 import { journalQueryKeys } from "@/src/features/journal/model/query-keys";
 import { getUserFriendlyError } from "@/src/shared/api/errors";
+import { isRoundWonByUser, uniqueRoundsById } from "@/src/features/journal/model/outcome";
 
 export default function HistoryPage() {
   const user = useAppStore((state) => state.user);
   const { data: userRounds = [], error, isLoading } = useQuery({
     queryKey: [...journalQueryKeys.me, user.id],
-    queryFn: () => journalService.getMyJournal(user)
+    queryFn: () => journalService.getMyJournal(user),
+    staleTime: 0,
+    refetchOnMount: "always"
   });
-  const wins = userRounds.filter((round) => round.winnerId === user.id).length;
-  const totalDelta = userRounds.reduce((sum, round) => sum + round.balanceDelta, 0);
+  const normalizedRounds = uniqueRoundsById(userRounds);
+  const wins = isLoading ? null : normalizedRounds.filter((round) => isRoundWonByUser(round, user.id)).length;
+  const totalDelta = isLoading ? null : normalizedRounds.reduce((sum, round) => sum + round.balanceDelta, 0);
 
   return (
     <AppFrame>
@@ -40,17 +45,17 @@ export default function HistoryPage() {
               <h1 className="text-balance text-4xl font-black leading-[0.98] tracking-[-0.05em] text-platinum md:text-6xl">
                 Все игровые
                 <br />
-                <span className="brand-marker">раунды</span>.
+                <span className="brand-marker">раунды</span>
               </h1>
               <p className="mt-4 max-w-3xl text-base leading-8 text-smoke md:text-lg">
-                Здесь собраны ваши игры: состав, победитель, итог по балансу и сохраненная выигрышная комбинация.
+                Здесь собраны ваши игры: состав, победитель и итог по балансу.
               </p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-              <HistoryStat label="Раунды" value={`${userRounds.length}`} icon={<History className="h-5 w-5" />} />
-              <HistoryStat label="Победы" value={`${wins}`} icon={<Trophy className="h-5 w-5" />} tone="jade" />
-              <HistoryStat label="Итог" value={`${totalDelta >= 0 ? "+" : ""}${formatBonus(totalDelta)}`} icon={<Sparkles className="h-5 w-5" />} tone={totalDelta >= 0 ? "jade" : "ember"} />
+              <HistoryStat label="Раунды" value={isLoading ? "..." : `${normalizedRounds.length}`} icon={<History className="h-5 w-5" />} />
+              <HistoryStat label="Победы" value={wins === null ? "..." : `${wins}`} icon={<Trophy className="h-5 w-5" />} tone="jade" />
+              <HistoryStat label="Итог" value={totalDelta === null ? "..." : `${totalDelta >= 0 ? "+" : ""}${formatBonus(totalDelta)}`} icon={<Sparkles className="h-5 w-5" />} tone={(totalDelta ?? 0) >= 0 ? "jade" : "ember"} />
             </div>
           </div>
         </section>
@@ -59,19 +64,19 @@ export default function HistoryPage() {
           <div className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-[radial-gradient(circle,rgba(123,60,255,0.12),transparent_64%)]" />
           <div className="relative">
             {isLoading ? (
-              <div className="rounded-[28px] bg-gold/8 p-6 text-sm text-smoke">Загружаем историю игр...</div>
+              <MascotLoading title="Шиншилла подгружает историю..." description="Собираем ваши раунды, места участников и изменения баланса." />
             ) : error ? (
               <div className="rounded-[28px] bg-ember/10 p-6 text-sm text-ember">{getUserFriendlyError(error)}</div>
-            ) : userRounds.length ? (
+            ) : normalizedRounds.length ? (
               <div className="space-y-4">
-                {userRounds.map((round) => (
+                {normalizedRounds.map((round) => (
                   <HistoryRoundCard key={round.id} round={round} currentUserId={user.id} />
                 ))}
               </div>
             ) : (
               <div className="rounded-[28px] bg-[linear-gradient(145deg,rgba(255,205,24,0.08),rgba(255,255,255,0.026)_46%,rgba(10,11,15,0.9))] p-6 shadow-[0_22px_70px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.055)]">
                 <p className="text-xl font-semibold text-platinum">Вы еще не участвовали в играх</p>
-                <p className="mt-2 max-w-2xl text-sm leading-7 text-smoke">После первого раунда здесь появятся карточки с участниками, победителем, балансом и комбинацией.</p>
+                <p className="mt-2 max-w-2xl text-sm leading-7 text-smoke">После первого раунда здесь появятся карточки с участниками, победителем и балансом.</p>
                 <ButtonLink href="/lobby" className="mt-5">Сыграть</ButtonLink>
               </div>
             )}

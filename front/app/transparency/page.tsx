@@ -1,11 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Bot, ChevronDown, CircleDollarSign, Crown, FileCheck2, Fingerprint, ShieldCheck, Sparkles, Trophy, UsersRound } from "lucide-react";
+import { Bot, ChevronDown, CircleDollarSign, Crown, FileCheck2, Fingerprint, ShieldCheck, Sparkles, UsersRound } from "lucide-react";
 import { AppFrame } from "@/components/layout/app-nav";
 import { Panel } from "@/components/ui/panel";
 import { ParticipantToken } from "@/components/domain/participant-token";
-import { WinningCombinationBlock } from "@/components/domain/winning-combination";
+import { MascotLoading } from "@/components/domain/mascot-loading";
 import { AccessGuard } from "@/components/domain/access-guard";
 import { Round, RoundBalanceChange } from "@/lib/domain/types";
 import { cn, formatBonus } from "@/lib/utils";
@@ -16,7 +16,9 @@ import { getUserFriendlyError } from "@/src/shared/api/errors";
 export default function TransparencyPage() {
   const { data: rounds = [], error, isLoading } = useQuery({
     queryKey: journalQueryKeys.list(),
-    queryFn: () => journalService.getJournal()
+    queryFn: () => journalService.getJournal(),
+    staleTime: 30_000,
+    refetchOnMount: false
   });
   const totalPrize = rounds.reduce((sum, round) => sum + round.prizePool, 0);
   const boostedRounds = rounds.filter((round) => round.boostUsed).length;
@@ -45,7 +47,7 @@ export default function TransparencyPage() {
                   <span className="brand-marker">проведенных раундов</span>.
                 </h1>
                 <p className="mt-4 max-w-3xl text-base leading-8 text-smoke md:text-lg">
-                  Здесь видно, как прошли игровые сессии: состав, боты, параметры комнаты, бусты, фонд, победитель, комбинация и изменения балансов.
+                  Здесь видно, как прошли игровые сессии: состав, боты, параметры комнаты, бусты, фонд, победитель и изменения балансов.
                 </p>
               </div>
 
@@ -59,12 +61,12 @@ export default function TransparencyPage() {
 
           <div className="grid gap-4 md:grid-cols-3">
             <OverviewCard title="Участники и боты" value={`${bots} ботов`} description="Свободные места фиксируются в составе раунда, чтобы эксперт видел автозаполнение." icon={<UsersRound className="h-5 w-5" />} />
-            <OverviewCard title="Проверка результата" value="зафиксировано" description="Победитель, комбинация и балансные операции сохраняются в журнале после завершения раунда." icon={<Fingerprint className="h-5 w-5" />} />
+            <OverviewCard title="Проверка результата" value="зафиксировано" description="Победитель и балансные операции сохраняются в журнале после завершения раунда." icon={<Fingerprint className="h-5 w-5" />} />
             <OverviewCard title="Роль доступа" value="admin / expert" description="Журнал скрыт от обычного игрока и используется как экран прозрачности." icon={<ShieldCheck className="h-5 w-5" />} />
           </div>
 
           {isLoading ? (
-            <Panel className="surface-solid border-0 p-6 shadow-none before:hidden">Загружаем журнал раундов...</Panel>
+            <MascotLoading title="Шиншилла проверяет журнал..." description="Подгружаем раунды, места участников, ботов и победителей." />
           ) : error ? (
             <Panel className="surface-solid border-0 p-6 text-ember shadow-none before:hidden">{getUserFriendlyError(error)}</Panel>
           ) : (
@@ -111,7 +113,7 @@ function RoundAuditCard({ round, index }: { round: Round; index: number }) {
               <SoftMetric label="Реальные" value={`${realCount}`} />
               <SoftMetric label="Боты" value={`${botsCount}`} tone="cyan" />
               <SoftMetric label="Фонд" value={formatBonus(round.prizePool)} tone="gold" />
-              <SoftMetric label="Победитель" value={winner.name} tone="jade" />
+              <SoftMetric label="Победитель" value={winner.seatNumber ? `${winner.name} · ${winner.seatNumber} место` : winner.name} tone="jade" />
             </div>
           </div>
 
@@ -120,11 +122,13 @@ function RoundAuditCard({ round, index }: { round: Round; index: number }) {
             <div className="mt-3">
               <ParticipantToken participant={winner} />
             </div>
-            <p className="mt-3 text-sm leading-6 text-smoke">Победитель и выигрышная комбинация зафиксированы после завершения визуального раунда.</p>
+            <p className="mt-3 text-sm leading-6 text-smoke">
+              {winner.seatNumber ? `Победившее место: ${winner.seatNumber}.` : "Победившее место зафиксировано в составе раунда."}
+            </p>
           </div>
         </div>
 
-        <div className="mt-6 grid gap-6 xl:grid-cols-[.95fr_1.05fr_.9fr]">
+        <div className="mt-6 grid gap-6 xl:grid-cols-2">
           <section>
             <BlockTitle icon={<CircleDollarSign className="h-4 w-4" />} title="Изменения балансов" />
             <div className="mt-3 space-y-2">
@@ -137,9 +141,9 @@ function RoundAuditCard({ round, index }: { round: Round; index: number }) {
           <section>
             <BlockTitle icon={<UsersRound className="h-4 w-4" />} title="Состав раунда" />
             <div className="mt-3 grid gap-2 md:grid-cols-2">
-              {round.participants.map((participant) => (
+              {round.participants.map((participant, participantIndex) => (
                 <div
-                  key={participant.id}
+                  key={`${participant.id}-${participant.seatNumber ?? participantIndex}`}
                   className={cn(
                     "rounded-[22px] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)]",
                     participant.id === round.winnerId ? "bg-gold/10" : "bg-white/[0.04]"
@@ -151,12 +155,6 @@ function RoundAuditCard({ round, index }: { round: Round; index: number }) {
             </div>
           </section>
 
-          <section>
-            <BlockTitle icon={<Trophy className="h-4 w-4" />} title="Комбинация" />
-            <div className="mt-3">
-              <WinningCombinationBlock combination={round.combination} compact />
-            </div>
-          </section>
         </div>
 
         <details className="group mt-6 rounded-[26px] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.018)),rgba(9,10,14,0.88)] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)]">
@@ -169,7 +167,7 @@ function RoundAuditCard({ round, index }: { round: Round; index: number }) {
           </summary>
           <div className="mt-4 grid gap-2 md:grid-cols-2">
             {round.auditTrail.map((item, itemIndex) => (
-              <div key={item} className="flex items-start gap-3 rounded-[20px] bg-white/[0.045] p-3 text-sm leading-6 text-smoke shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+              <div key={`${item}-${itemIndex}`} className="flex items-start gap-3 rounded-[20px] bg-white/[0.045] p-3 text-sm leading-6 text-smoke shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
                 <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-gold/12 text-[11px] font-black text-gold">{itemIndex + 1}</span>
                 <span>{item}</span>
               </div>
@@ -256,9 +254,10 @@ function BalanceAuditRow({ change }: { change: RoundBalanceChange }) {
 function modeLabel(mode: Round["mode"]) {
   return {
     "arena-sprint": "Гонка шаров",
-    "claw-machine": "Автомат с шарами",
-    "duel-clash": "Дуэль арены",
-    "slot-reveal": "Раскрытие символов"
+    "claw-machine": "Призовой автомат",
+    "duel-clash": "Дуэль шиншилл",
+    "slot-reveal": "Магия имени",
+    "chinchilla-race": "Гонки шиншилл"
   }[mode];
 }
 

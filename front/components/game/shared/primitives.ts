@@ -6,7 +6,15 @@ export const height = 430;
 export const colors = ["#e86aa8", "#8be1ec", "#8d95ff", "#eadf8c", "#7ee7a7", "#f27b68", "#bfa2ff", "#7cd2ff", "#e3eef8", "#d8b55f"];
 
 export function drawBackdrop(ctx: CanvasRenderingContext2D, mode: GameMode) {
-  const accent = mode === "claw-machine" ? "#4dd7c8" : mode === "duel-clash" ? "#e4503d" : mode === "slot-reveal" ? "#d8b55f" : "#39d98a";
+  const accent = mode === "claw-machine"
+    ? "#4dd7c8"
+    : mode === "duel-clash"
+      ? "#e4503d"
+      : mode === "slot-reveal"
+        ? "#d8b55f"
+        : mode === "chinchilla-race"
+          ? "#ffcd18"
+          : "#39d98a";
   const bg = ctx.createLinearGradient(0, 0, width, height);
   bg.addColorStop(0, "#050508");
   bg.addColorStop(0.52, "#10101a");
@@ -35,9 +43,10 @@ export function drawBackdrop(ctx: CanvasRenderingContext2D, mode: GameMode) {
 export function drawCaption(ctx: CanvasRenderingContext2D, mode: GameMode, phase: string) {
   const modeLabel = {
     "arena-sprint": "ГОНКА ШАРОВ",
-    "duel-clash": "ДУЭЛЬ АРЕНЫ",
-    "claw-machine": "АВТОМАТ С ШАРАМИ",
-    "slot-reveal": "РАСКРЫТИЕ СИМВОЛОВ"
+    "duel-clash": "ДУЭЛЬ ШИНШИЛЛ",
+    "claw-machine": "ПРИЗОВОЙ АВТОМАТ",
+    "slot-reveal": "МАГИЯ ИМЕНИ",
+    "chinchilla-race": "ГОНКИ ШИНШИЛЛ"
   }[mode];
   ctx.save();
   ctx.fillStyle = "rgba(7,7,7,.78)";

@@ -16,8 +16,14 @@ export function ParticipantToken({ participant, compact = false }: { participant
           {participant.kind === "bot" ? <Bot className="h-3.5 w-3.5 text-muted" /> : null}
           {participant.hasBoost ? <Sparkles className="h-3.5 w-3.5 text-gold" /> : null}
         </div>
-        <p className="text-xs text-muted">{participant.kind === "bot" ? "бот-заполнение" : participant.vipTier}</p>
+        <p className="text-xs text-muted">{participantSubtitle(participant)}</p>
       </div>
     </div>
   );
+}
+
+function participantSubtitle(participant: Participant) {
+  if (typeof participant.seatNumber === "number") return `место ${Math.max(1, participant.seatNumber)}`;
+  if (participant.kind === "bot") return "бот";
+  return participant.vipTier ?? "место не указано";
 }

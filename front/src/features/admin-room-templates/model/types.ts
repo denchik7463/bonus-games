@@ -2,14 +2,17 @@ import type { GameMode, RoomTemplate } from "@/lib/domain/types";
 import type { BackendGameMechanic } from "@/src/shared/config/game-mechanics";
 
 export type RoomTemplateDto = {
-  id: string;
+  id?: string;
+  templateId?: string;
   templateName: string;
   active: boolean;
   entryCost: number;
+  prizeFund?: number;
   bonusEnabled: boolean;
   bonusPrice: number;
   bonusWeight: number;
   maxPlayers: number;
+  winnerPercent?: number;
   gameMechanic: BackendGameMechanic;
   createdAt: string;
   updatedAt: string;
@@ -23,6 +26,7 @@ export type CreateRoomTemplateRequest = {
   bonusPrice: number;
   bonusWeight: number;
   maxPlayers: number;
+  winnerPercent: number;
   gameMechanic: BackendGameMechanic;
 };
 
