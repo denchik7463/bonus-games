@@ -26,13 +26,14 @@ const chinchillaSources = [
   "/mascots/ch7.png",
   "/mascots/ch8.png",
   "/mascots/ch9.png",
-  encodeURI("/mascots/сh10.png")
+  "/mascots/ch10.png"
 ];
 
 type AssetEntry = {
   image: HTMLImageElement;
   ready: boolean;
   error: boolean;
+  promise?: Promise<HTMLImageElement | null>;
 };
 
 const assetCache = new Map<string, AssetEntry>();
@@ -94,6 +95,11 @@ export function drawChinchillaRaceScene(ctx: CanvasRenderingContext2D, payload: 
       smoothstep(0.94, 1, progress)
     );
   }
+}
+
+export function preloadChinchillaAssets() {
+  if (typeof window === "undefined") return Promise.resolve();
+  return Promise.all(chinchillaSources.map((source) => ensureChinchillaAsset(source).promise)).then(() => undefined);
 }
 
 function buildRow(participant: Participant, index: number, count: number, progress: number, time: number, winnerId?: string) {
@@ -828,20 +834,32 @@ function stableSeed(id: string, index: number) {
 function getChinchillaImage(index: number) {
   if (typeof window === "undefined") return null;
   const source = chinchillaSources[index % chinchillaSources.length];
+  const entry = ensureChinchillaAsset(source);
+  return entry.ready && !entry.error ? entry.image : null;
+}
+
+function ensureChinchillaAsset(source: string) {
   let entry = assetCache.get(source);
-  if (!entry) {
-    const image = new window.Image();
-    entry = { image, ready: false, error: false };
+  if (entry) return entry;
+
+  const image = new window.Image();
+  entry = { image, ready: false, error: false };
+  entry.promise = new Promise((resolve) => {
     image.onload = () => {
       const current = assetCache.get(source);
-      if (current) current.ready = true;
+      if (current) {
+        current.ready = true;
+        current.error = false;
+      }
+      resolve(image);
     };
     image.onerror = () => {
       const current = assetCache.get(source);
       if (current) current.error = true;
+      resolve(null);
     };
-    image.src = source;
-    assetCache.set(source, entry);
-  }
-  return entry.ready && !entry.error ? entry.image : null;
+  });
+  image.src = source;
+  assetCache.set(source, entry);
+  return entry;
 }

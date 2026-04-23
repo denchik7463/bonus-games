@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { GameMode } from "@/lib/domain/types";
 import { drawCardsScene } from "@/components/game/cards/scene";
 import { drawClawScene } from "@/components/game/claw/scene";
-import { drawChinchillaRaceScene } from "@/components/game/chinchilla/scene";
-import { drawDuelScene } from "@/components/game/duel/scene";
+import { drawChinchillaRaceScene, preloadChinchillaAssets } from "@/components/game/chinchilla/scene";
+import { drawDuelScene, preloadDuelAssets } from "@/components/game/duel/scene";
 import { drawRaceScene } from "@/components/game/race/scene";
 import { drawBackdrop, drawCaption, scenePhase, width, height, clamp } from "@/components/game/shared/primitives";
 import { Payload, SceneProps } from "@/components/game/shared/types";
@@ -44,6 +44,7 @@ export function ArenaSprintScene({ roundId, mode, participants, winnerId, combin
     if (!ctx) return;
 
     let raf = 0;
+    let cancelled = false;
     const resize = () => {
       const ratio = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = width * ratio;
@@ -68,14 +69,22 @@ export function ArenaSprintScene({ roundId, mode, participants, winnerId, combin
       raf = window.requestAnimationFrame(render);
     };
 
-    resize();
-    window.addEventListener("resize", resize);
-    raf = window.requestAnimationFrame((now) => {
-      startRef.current = now;
-      render(now);
-    });
+    async function start() {
+      if (payloadRef.current.mode === "chinchilla-race") await preloadChinchillaAssets();
+      if (payloadRef.current.mode === "duel-clash") await preloadDuelAssets();
+      if (cancelled) return;
+      resize();
+      window.addEventListener("resize", resize);
+      raf = window.requestAnimationFrame((now) => {
+        startRef.current = now;
+        render(now);
+      });
+    }
+
+    start();
 
     return () => {
+      cancelled = true;
       window.cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
     };

@@ -13,8 +13,18 @@ const chinchillaSources = [
   "/mascots/ch7.png",
   "/mascots/ch8.png",
   "/mascots/ch9.png",
-  encodeURI("/mascots/сh10.png")
+  "/mascots/ch10.png"
 ];
+
+export function preloadDuelAssets() {
+  if (typeof window === "undefined") return Promise.resolve();
+  const assets = [
+    "/mascots/duel/background.png",
+    "/mascots/duel/sword.png",
+    ...chinchillaSources
+  ];
+  return Promise.all(assets.map((src) => preloadDuelImage(src))).then(() => undefined);
+}
 
 export function drawDuelScene(ctx: CanvasRenderingContext2D, payload: Payload, progress: number, time: number) {
   const fighters = payload.participants.slice(0, 10);
@@ -414,6 +424,25 @@ function getDuelImage(src: string) {
   image.src = src;
   duelImages.set(src, image);
   return image;
+}
+
+function preloadDuelImage(src: string) {
+  if (typeof window === "undefined") return Promise.resolve(null);
+  const cached = duelImages.get(src);
+  if (cached?.complete && cached.naturalWidth > 0) return Promise.resolve(cached);
+  const image = cached ?? new Image();
+  if (!cached) {
+    duelImages.set(src, image);
+    image.src = src;
+  }
+  return new Promise<HTMLImageElement | null>((resolve) => {
+    if (image.complete && image.naturalWidth > 0) {
+      resolve(image);
+      return;
+    }
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+  });
 }
 
 function coverImage(ctx: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, w: number, h: number) {
