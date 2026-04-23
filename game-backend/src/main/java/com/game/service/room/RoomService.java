@@ -24,6 +24,7 @@ import com.game.repository.GameResultRepository;
 import com.game.repository.RoomConfigRepository;
 import com.game.repository.RoomPlayerRepository;
 import com.game.repository.RoomRepository;
+import com.game.repository.WalletAccountRepository;
 import com.game.realtime.RoomEventPublisher;
 import com.game.service.game.RoundEventLogService;
 import com.game.service.game.WinnerService;
@@ -62,6 +63,7 @@ public class RoomService {
     private final GameResultRepository gameResultRepository;
     private final RoomEventPublisher roomEventPublisher;
     private final WalletService walletService;
+    private final WalletAccountRepository walletAccountRepository;
     private final WalletReservationRepository walletReservationRepository;
     private final WinnerService winnerService;
     private final RoundEventLogService roundEventLogService;
@@ -87,7 +89,9 @@ public class RoomService {
     }
 
     @Transactional
-    public RoomResponse joinByTemplate(JoinByTemplateRequest request) {
+    public RoomResponse joinByTemplate(JoinByTemplateRequest request, User user) {
+        lockUserWallet(user);
+        ensureNoOtherActiveRoom(user, null);
         RoomConfig template = resolveTemplateForMatching(request);
         RequestedSeatSelection selection = resolveRequestedSeatSelection(
                 request.getSeats(),
@@ -299,6 +303,8 @@ public class RoomService {
     @Transactional
     public JoinRoomResponse joinRoom(UUID roomId, User user, JoinRoomRequest request) {
         Room room = findRoom(roomId);
+        lockUserWallet(user);
+        ensureNoOtherActiveRoom(user, roomId);
         if (request == null) {
             throw new IllegalArgumentException("Join request is required");
         }
@@ -407,6 +413,23 @@ public class RoomService {
     public JoinRoomResponse joinRoomByShortId(String shortId, User user, JoinRoomRequest request) {
         Room room = findRoomByShortId(shortId);
         return joinRoom(room.getId(), user, request);
+    }
+
+    private void lockUserWallet(User user) {
+        walletAccountRepository.findByUserIdForUpdate(user.getId())
+                .orElseThrow(() -> new NotFoundException("Wallet not found"));
+    }
+
+    private void ensureNoOtherActiveRoom(User user, UUID currentRoomId) {
+        RoomPlayer activePlayer = roomPlayerRepository.findActiveByUserIdOrderByJoinTimeDesc(user.getId(), ACTIVE_STATUSES).stream()
+                .filter(player -> player.getRoom() != null)
+                .filter(player -> currentRoomId == null || !player.getRoom().getId().equals(currentRoomId))
+                .findFirst()
+                .orElse(null);
+        if (activePlayer == null) {
+            return;
+        }
+        throw new com.game.exception.ConflictException("User already participates in another active room");
     }
 
     @Transactional

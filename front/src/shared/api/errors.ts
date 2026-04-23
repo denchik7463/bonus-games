@@ -31,27 +31,35 @@ export function normalizeApiError(error: unknown): ApiClientError {
     return new ApiClientError(error.message);
   }
 
-  return new ApiClientError("Не удалось выполнить запрос.");
+  return new ApiClientError("\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u044b\u043f\u043e\u043b\u043d\u0438\u0442\u044c \u0437\u0430\u043f\u0440\u043e\u0441.");
 }
 
 export function getUserFriendlyError(error: unknown) {
   const normalized = normalizeApiError(error);
   const rawMessage = normalized.message.toLowerCase();
 
-  if (normalized.code === "CONFLICT") return "Такое имя уже занято. Попробуйте другое.";
+  if (rawMessage.includes("already participates in another active room")) {
+    return "\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0437\u0430\u0432\u0435\u0440\u0448\u0438\u0442\u0435 \u0442\u0435\u043a\u0443\u0449\u0443\u044e \u0438\u0433\u0440\u0443. \u041e\u0434\u043d\u043e\u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u043c\u043e\u0436\u043d\u043e \u0443\u0447\u0430\u0441\u0442\u0432\u043e\u0432\u0430\u0442\u044c \u0442\u043e\u043b\u044c\u043a\u043e \u0432 \u043e\u0434\u043d\u043e\u0439 \u0430\u043a\u0442\u0438\u0432\u043d\u043e\u0439 \u043a\u043e\u043c\u043d\u0430\u0442\u0435.";
+  }
+  if (rawMessage.includes("username is already taken")) {
+    return "\u0422\u0430\u043a\u043e\u0435 \u0438\u043c\u044f \u0443\u0436\u0435 \u0437\u0430\u043d\u044f\u0442\u043e. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0434\u0440\u0443\u0433\u043e\u0435.";
+  }
+  if (normalized.code === "CONFLICT") {
+    return "\u041e\u043f\u0435\u0440\u0430\u0446\u0438\u044f \u043a\u043e\u043d\u0444\u043b\u0438\u043a\u0442\u0443\u0435\u0442 \u0441 \u0442\u0435\u043a\u0443\u0449\u0438\u043c \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435\u043c. \u041e\u0431\u043d\u043e\u0432\u0438\u0442\u0435 \u0434\u0430\u043d\u043d\u044b\u0435 \u0438 \u043f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0441\u043d\u043e\u0432\u0430.";
+  }
   if (rawMessage.includes("active room template for requested parameters not found") || rawMessage.includes("requested parameters not found")) {
-    return "По выбранным параметрам сейчас нет подходящей комнаты. Попробуйте изменить стоимость входа, фонд или количество мест.";
+    return "\u041f\u043e \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u044b\u043c \u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u0430\u043c \u0441\u0435\u0439\u0447\u0430\u0441 \u043d\u0435\u0442 \u043f\u043e\u0434\u0445\u043e\u0434\u044f\u0449\u0435\u0439 \u043a\u043e\u043c\u043d\u0430\u0442\u044b. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u0441\u0442\u043e\u0438\u043c\u043e\u0441\u0442\u044c \u0432\u0445\u043e\u0434\u0430, \u0444\u043e\u043d\u0434 \u0438\u043b\u0438 \u043a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e \u043c\u0435\u0441\u0442.";
   }
-  if (normalized.status === 401) return "Сессия истекла или логин/пароль неверные.";
-  if (normalized.status === 403) return "Недостаточно прав для этого действия.";
+  if (normalized.status === 401) return "\u0421\u0435\u0441\u0441\u0438\u044f \u0438\u0441\u0442\u0435\u043a\u043b\u0430 \u0438\u043b\u0438 \u043b\u043e\u0433\u0438\u043d/\u043f\u0430\u0440\u043e\u043b\u044c \u043d\u0435\u0432\u0435\u0440\u043d\u044b\u0435.";
+  if (normalized.status === 403) return "\u041d\u0435\u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e \u043f\u0440\u0430\u0432 \u0434\u043b\u044f \u044d\u0442\u043e\u0433\u043e \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f.";
   if (normalized.status === 404) {
-    return "Ничего не найдено.";
+    return "\u041d\u0438\u0447\u0435\u0433\u043e \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e.";
   }
-  if (normalized.code === "NETWORK_ERROR") return "Backend сейчас недоступен. Проверьте, что сервер запущен и доступен из frontend.";
-  if (normalized.code === "TIMEOUT") return "Backend слишком долго считает анализ. Попробуйте уменьшить число симуляций или повторить запрос.";
-  if (normalized.code === "BACKEND_UNAVAILABLE") return "Backend не отвечает по адресу интеграции. Проверьте сервер или BACKEND_API_BASE_URL.";
+  if (normalized.code === "NETWORK_ERROR") return "Backend \u0441\u0435\u0439\u0447\u0430\u0441 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435, \u0447\u0442\u043e \u0441\u0435\u0440\u0432\u0435\u0440 \u0437\u0430\u043f\u0443\u0449\u0435\u043d \u0438 \u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d \u0438\u0437 frontend.";
+  if (normalized.code === "TIMEOUT") return "Backend \u0441\u043b\u0438\u0448\u043a\u043e\u043c \u0434\u043e\u043b\u0433\u043e \u0441\u0447\u0438\u0442\u0430\u0435\u0442 \u0430\u043d\u0430\u043b\u0438\u0437. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0443\u043c\u0435\u043d\u044c\u0448\u0438\u0442\u044c \u0447\u0438\u0441\u043b\u043e \u0441\u0438\u043c\u0443\u043b\u044f\u0446\u0438\u0439 \u0438\u043b\u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u044c \u0437\u0430\u043f\u0440\u043e\u0441.";
+  if (normalized.code === "BACKEND_UNAVAILABLE") return "Backend \u043d\u0435 \u043e\u0442\u0432\u0435\u0447\u0430\u0435\u0442 \u043f\u043e \u0430\u0434\u0440\u0435\u0441\u0443 \u0438\u043d\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u0438. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u0441\u0435\u0440\u0432\u0435\u0440 \u0438\u043b\u0438 BACKEND_API_BASE_URL.";
 
-  return normalized.message || "Что-то пошло не так. Попробуйте еще раз.";
+  return normalized.message || "\u0427\u0442\u043e-\u0442\u043e \u043f\u043e\u0448\u043b\u043e \u043d\u0435 \u0442\u0430\u043a. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0435\u0449\u0435 \u0440\u0430\u0437.";
 }
 
 function statusCodeToErrorCode(status: number | undefined, error?: AxiosError) {
@@ -65,6 +73,6 @@ function statusCodeToErrorCode(status: number | undefined, error?: AxiosError) {
 }
 
 function networkMessage(error: AxiosError) {
-  if (!error.response) return "Backend сейчас недоступен.";
-  return "Не удалось выполнить запрос.";
+  if (!error.response) return "Backend \u0441\u0435\u0439\u0447\u0430\u0441 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d.";
+  return "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u044b\u043f\u043e\u043b\u043d\u0438\u0442\u044c \u0437\u0430\u043f\u0440\u043e\u0441.";
 }

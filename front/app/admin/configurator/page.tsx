@@ -21,7 +21,7 @@ import {
   UsersRound,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { z } from "zod";
@@ -277,6 +277,17 @@ export default function AdminConfiguratorPage() {
     form.setValue("players", nextPlayers, { shouldValidate: true, shouldDirty: true });
   }
 
+  function clampSeatsInput(event: FormEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    if (!input.value) return;
+
+    const nextValue = Number(input.value);
+    if (!Number.isFinite(nextValue) || nextValue <= 10) return;
+
+    input.value = "10";
+    form.setValue("seats", 10, { shouldValidate: true, shouldDirty: true });
+  }
+
   return (
     <AppFrame>
       <AccessGuard roles={["admin"]} title="Раздел недоступен">
@@ -317,7 +328,21 @@ export default function AdminConfiguratorPage() {
                       <input type="number" min={1000} max={10000} {...form.register("entryCost")} className="field" />
                     </Field>
                     <Field label="Количество мест" error={form.formState.errors.seats?.message}>
-                      <input type="number" {...form.register("seats", { onBlur: syncPlayersWithSeats })} className="field" />
+                      <input
+                        type="number"
+                        min={2}
+                        max={10}
+                        step={1}
+                        {...form.register("seats", {
+                          onBlur: syncPlayersWithSeats,
+                          setValueAs: (value) => {
+                            const numericValue = Number(value);
+                            return Number.isFinite(numericValue) ? Math.min(numericValue, 10) : value;
+                          }
+                        })}
+                        onInput={clampSeatsInput}
+                        className="field"
+                      />
                     </Field>
                     <Field label="Выплата победителю, %" error={form.formState.errors.prizePoolPercent?.message}>
                       <input type="number" {...form.register("prizePoolPercent")} className="field" />
@@ -354,7 +379,17 @@ export default function AdminConfiguratorPage() {
                     </div>
                   </section>
 
-                  <PlayersEditor fields={playersField.fields} register={form.register} append={playersField.append} remove={playersField.remove} boostEnabled={values.boostEnabled} />
+                  <PlayersEditor
+                    fields={playersField.fields}
+                    register={form.register}
+                    append={(value) => {
+                      if (values.players.length >= Math.min(10, values.seats)) return;
+                      playersField.append(value);
+                    }}
+                    remove={playersField.remove}
+                    boostEnabled={values.boostEnabled}
+                    seats={values.seats}
+                  />
 
                   <section className="grid gap-4">
                     <label className="flex min-h-[74px] items-center justify-between rounded-[24px] bg-white/[0.045] p-4 text-sm text-smoke shadow-[inset_0_1px_0_rgba(255,255,255,0.065)]">
@@ -483,14 +518,18 @@ function PlayersEditor({
   register,
   append,
   remove,
-  boostEnabled
+  boostEnabled,
+  seats
 }: {
   fields: Array<{ id: string; name: string; boost: boolean }>;
   register: ReturnType<typeof useForm<RoomTemplateFormValues>>["register"];
   append: (value: { name: string; boost: boolean }) => void;
   remove: (index: number) => void;
   boostEnabled: boolean;
+  seats: number;
 }) {
+  const maxPlayers = Math.max(0, Math.min(10, seats));
+
   return (
     <section className="admin-soft-panel rounded-[30px] bg-white/[0.04] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.065)]">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -503,6 +542,7 @@ function PlayersEditor({
         </div>
         <Button type="button" variant="secondary" onClick={() => append({ name: `Игрок ${fields.length + 1}`, boost: false })} disabled={fields.length >= 10}>
           <Plus className="mr-2 h-4 w-4" />
+          <span className="sr-only">{fields.length} / {maxPlayers}</span>
           Добавить
         </Button>
       </div>
