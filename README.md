@@ -1,5 +1,11 @@
 # Bonus Games
 
+## Ссылка на сайт
+https://aurum.bytehack.ru/
+
+## Скринкаст
+https://disk.yandex.ru/d/_txJCfBPZ1n0bw
+
 Игровой backend-модуль с комнатами, бонусным балансом, резервированием средств, выбором победителя через внешний random-service и realtime-событиями по WebSocket.
 
 ## Архитектура
