@@ -26,9 +26,39 @@ export default function LobbyPage() {
   return (
     <AppFrame>
       <section className="lobby-hero-slab relative mb-8 min-h-[560px] overflow-hidden rounded-[36px] bg-[rgba(9,10,13,0.98)]">
-        <Image src="/Main.png" alt="" fill className="scale-105 object-cover object-center opacity-40 blur-[2px]" priority unoptimized />
+        <Image
+          src="/Main.png"
+          alt=""
+          fill
+          className="lobby-hero-backdrop lobby-hero-backdrop--dark scale-105 object-cover object-center opacity-40 blur-[2px]"
+          priority
+          unoptimized
+        />
+        <Image
+          src="/Main2.png"
+          alt=""
+          fill
+          className="lobby-hero-backdrop lobby-hero-backdrop--light scale-105 object-cover object-center opacity-40 blur-[2px]"
+          priority
+          unoptimized
+        />
         <div className="absolute inset-y-0 right-0 w-[68%] max-w-[920px] opacity-95">
-          <Image src="/Main.png" alt="" fill className="object-contain object-right drop-shadow-[0_34px_90px_rgba(0,0,0,0.46)]" priority unoptimized />
+          <Image
+            src="/Main.png"
+            alt=""
+            fill
+            className="lobby-hero-figure lobby-hero-figure--dark object-contain object-right drop-shadow-[0_34px_90px_rgba(0,0,0,0.46)]"
+            priority
+            unoptimized
+          />
+          <Image
+            src="/Main2.png"
+            alt=""
+            fill
+            className="lobby-hero-figure lobby-hero-figure--light object-contain object-right drop-shadow-[0_30px_72px_rgba(90,105,130,0.18)]"
+            priority
+            unoptimized
+          />
         </div>
         <div className="lobby-hero-veil absolute inset-0 bg-[radial-gradient(circle_at_78%_12%,rgba(255,205,24,.16),transparent_30%),linear-gradient(105deg,rgba(5,5,5,.97),rgba(5,6,8,.88)_45%,rgba(5,6,8,.42)_72%,rgba(5,6,8,.16))]" />
         <div className="brand-scope left-[58%] top-[12%] h-[340px] w-[340px] motion-safe:animate-[lobby-brand-drift_18s_ease-in-out_infinite]" />

@@ -594,20 +594,35 @@ html[data-theme="light"] .brand-marker {
 
 html[data-theme="light"] .lobby-hero-slab {
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(231, 235, 243, 0.84)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(237, 240, 246, 0.88)),
     #f3f5f8;
   box-shadow: 0 28px 84px rgba(27, 36, 52, 0.16);
 }
 
-html[data-theme="light"] .lobby-hero-slab img {
-  opacity: 0.62 !important;
-  filter: saturate(1.4) contrast(1.12) brightness(0.92);
+html[data-theme="light"] .lobby-hero-backdrop--dark,
+html[data-theme="light"] .lobby-hero-figure--dark {
+  opacity: 0 !important;
+}
+
+html[data-theme="light"] .lobby-hero-backdrop--light,
+html[data-theme="light"] .lobby-hero-figure--light {
+  opacity: 1 !important;
+}
+
+html[data-theme="light"] .lobby-hero-backdrop {
+  opacity: 0.22 !important;
+  filter: saturate(1.02) contrast(0.96) brightness(1.04);
+}
+
+html[data-theme="light"] .lobby-hero-figure {
+  opacity: 0.98 !important;
+  filter: saturate(1.08) contrast(1.06) brightness(0.98);
 }
 
 html[data-theme="light"] .lobby-hero-veil {
   background:
-    radial-gradient(circle at 78% 12%, rgba(255, 205, 24, 0.16), transparent 30%),
-    linear-gradient(110deg, rgba(248, 250, 252, 0.62), rgba(234, 238, 246, 0.38) 54%, rgba(255, 255, 255, 0.16)) !important;
+    radial-gradient(circle at 78% 12%, rgba(255, 205, 24, 0.16), transparent 26%),
+    linear-gradient(104deg, rgba(248, 250, 252, 0.92), rgba(241, 244, 248, 0.76) 42%, rgba(247, 249, 252, 0.3) 68%, rgba(255, 255, 255, 0.04) 100%) !important;
 }
 
 html[data-theme="light"] .template-card {
@@ -971,6 +986,17 @@ html[data-theme="light"] input[type="range"]::-moz-range-thumb {
 
 .lobby-hero-slab {
   animation: lobby-hero-glow 5s ease-in-out infinite;
+}
+
+.lobby-hero-backdrop--light,
+.lobby-hero-figure--light {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lobby-hero-backdrop--dark,
+.lobby-hero-figure--dark {
+  opacity: 1;
 }
 
 .lobby-hero-veil {
