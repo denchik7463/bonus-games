@@ -873,6 +873,8 @@ public class RoomService {
                                       SelectWinnerResponse winner,
                                       int winnerIndex,
                                       long winnerPayout) {
+        RoomPlayer winnerPlayer = players.get(winnerIndex);
+        int winnerSeatNumber = resolveSeatNumber(winnerPlayer, winnerIndex);
         GameResult result = GameResult.builder()
                 .id(UUID.randomUUID())
                 .roomId(room.getId())
@@ -882,9 +884,9 @@ public class RoomService {
                 .boostAllowed(room.getBoostAllowed())
                 .botCount(room.getBotCount())
                 .roomStatus(room.getStatus())
-                .winnerPlayerExternalId(players.get(winnerIndex).getUserId().toString())
-                .winnerPlayerName(players.get(winnerIndex).getUsername())
-                .winnerPositionIndex(winnerIndex)
+                .winnerPlayerExternalId(winnerPlayer.getUserId().toString())
+                .winnerPlayerName(winnerPlayer.getUsername())
+                .winnerPositionIndex(winnerSeatNumber)
                 .baseWeight(null)
                 .boostBonus(null)
                 .totalWeight(winner.getTotalWeight())
@@ -896,6 +898,7 @@ public class RoomService {
 
         for (int i = 0; i < players.size(); i++) {
             RoomPlayer player = players.get(i);
+            int seatNumber = resolveSeatNumber(player, i);
             long after = isBot(player) ? 0L : walletService.getBalanceByUserId(player.getUserId()).getTotal();
             long boostCost = isBot(player) ? 0L : resolveBoostCostForHistory(player);
             long payout = (!isBot(player) && i == winnerIndex) ? winnerPayout : 0L;
@@ -908,7 +911,7 @@ public class RoomService {
             }
 
             GameResultPlayer participant = GameResultPlayer.builder()
-                    .positionIndex(i)
+                    .positionIndex(seatNumber)
                     .playerExternalId(player.getUserId().toString())
                     .username(player.getUsername())
                     .bot(isBot(player))
@@ -925,6 +928,14 @@ public class RoomService {
         }
 
         return gameResultRepository.save(result);
+    }
+
+    private int resolveSeatNumber(RoomPlayer player, int fallbackIndex) {
+        Integer playerOrder = player.getPlayerOrder();
+        if (playerOrder != null && playerOrder > 0) {
+            return playerOrder;
+        }
+        return fallbackIndex + 1;
     }
 
     private int resolveWinnerPercent(Room room) {
