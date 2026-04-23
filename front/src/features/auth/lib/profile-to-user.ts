@@ -33,7 +33,7 @@ function tierByRole(role: BackendRole): VipTier {
 }
 
 function avatarByRole(role: BackendRole) {
-  if (role === "ADMIN") return "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=240&q=80";
-  if (role === "EXPERT") return "https://images.unsplash.com/photo-1527980965255-d3b416303d12?auto=format&fit=crop&w=240&q=80";
-  return "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=240&q=80";
+  if (role === "ADMIN") return "/avatars/admin.jpg";
+  if (role === "EXPERT") return "/avatars/expert.jpg";
+  return "/avatars/player.jpg";
 }

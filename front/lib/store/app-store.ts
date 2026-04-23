@@ -17,6 +17,12 @@ const loggedOutUser: TestUser = {
   role: "player"
 };
 
+function normalizeAvatar(user: TestUser): TestUser {
+  if (user.avatar.startsWith("/avatars/")) return user;
+  const localAvatar = user.role === "admin" ? "/avatars/admin.jpg" : user.role === "expert" ? "/avatars/expert.jpg" : "/avatars/player.jpg";
+  return { ...user, avatar: localAvatar };
+}
+
 type AppState = {
   user: TestUser;
   settledRoundIds: string[];
@@ -31,8 +37,8 @@ export const useAppStore = create<AppState>()(
     (set) => ({
       user: loggedOutUser,
       settledRoundIds: [],
-      setUser: (user) => set({ user, settledRoundIds: [] }),
-      updateUser: (user) => set({ user }),
+      setUser: (user) => set({ user: normalizeAvatar(user), settledRoundIds: [] }),
+      updateUser: (user) => set({ user: normalizeAvatar(user) }),
       settleRound: (round) =>
         set((state) => {
           if (state.settledRoundIds.includes(round.id) || state.user.id !== round.userId) return state;
@@ -53,7 +59,8 @@ export const useAppStore = create<AppState>()(
         delete state.activeRoom;
         delete state.activeRound;
         return {
-          ...state
+          ...state,
+          user: state.user ? normalizeAvatar(state.user) : loggedOutUser
         };
       },
       partialize: (state) => ({
