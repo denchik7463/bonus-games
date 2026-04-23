@@ -311,28 +311,10 @@ function resolveBoostImpactLabel(round: Round) {
     return `+${formatPercent(gain)}% к шансу победы`;
   }
 
-  const inferred = inferBoostWeightPercent(round);
-  if (inferred > 0) {
-    return `+${formatPercent(inferred)}% к весу участия`;
-  }
+  const hasBoostedSeat = round.participants.some((participant) => participant.hasBoost);
+  if (hasBoostedSeat) return "влияние буста применено";
 
   return boostImpact || "шанс участия зафиксирован";
-}
-
-function inferBoostWeightPercent(round: Round) {
-  const boostedWeights = round.participants
-    .filter((participant) => participant.hasBoost && participant.weight > 0)
-    .map((participant) => participant.weight);
-  const baseWeights = round.participants
-    .filter((participant) => !participant.hasBoost && participant.weight > 0)
-    .map((participant) => participant.weight);
-  if (!boostedWeights.length || !baseWeights.length) return 0;
-
-  const baseWeight = Math.min(...baseWeights);
-  const boostedWeight = Math.max(...boostedWeights);
-  if (baseWeight <= 0 || boostedWeight <= baseWeight) return 0;
-
-  return ((boostedWeight - baseWeight) * 100) / baseWeight;
 }
 
 function formatPercent(value: number) {

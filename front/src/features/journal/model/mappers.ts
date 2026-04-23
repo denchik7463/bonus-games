@@ -64,10 +64,8 @@ function boostImpactFromEntry(entry: JournalEntryDto) {
     ?? nonNegativeNumber(entry.bonusWeight);
   if (weight) return `+${formatPercent(weight)}% к весу участия`;
 
-  const inferredWeightPercent = inferBoostWeightPercentFromParticipants(entry.participants ?? []);
-  return inferredWeightPercent > 0
-    ? `+${formatPercent(inferredWeightPercent)}% к весу участия`
-    : "шанс участия зафиксирован";
+  const hasBoostedParticipants = (entry.participants ?? []).some((participant) => Boolean(participant.boostUsed));
+  return hasBoostedParticipants ? "влияние буста применено" : "шанс участия зафиксирован";
 }
 
 export function journalEventsToAuditTrail(events: JournalEventDto[]) {
@@ -455,27 +453,6 @@ function inferBoostSeatCostFromParticipants(entry: JournalEntryDto) {
 
   const average = inferredCosts.reduce((sum, value) => sum + value, 0) / inferredCosts.length;
   return Math.round(average);
-}
-
-function inferBoostWeightPercentFromParticipants(participants: JournalParticipantDto[]) {
-  if (!participants.length) return 0;
-
-  const boostedWeights = participants
-    .filter((player) => Boolean(player.boostUsed))
-    .map((player) => player.finalWeight)
-    .filter((weight): weight is number => typeof weight === "number" && Number.isFinite(weight) && weight > 0);
-  const baseWeights = participants
-    .filter((player) => !Boolean(player.boostUsed))
-    .map((player) => player.finalWeight)
-    .filter((weight): weight is number => typeof weight === "number" && Number.isFinite(weight) && weight > 0);
-
-  if (!boostedWeights.length || !baseWeights.length) return 0;
-
-  const baseWeight = Math.min(...baseWeights);
-  const boostedWeight = Math.max(...boostedWeights);
-  if (baseWeight <= 0 || boostedWeight <= baseWeight) return 0;
-
-  return ((boostedWeight - baseWeight) * 100) / baseWeight;
 }
 
 function formatPercent(value: number) {

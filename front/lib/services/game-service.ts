@@ -217,7 +217,7 @@ export const gameService = {
         seats: params.seats,
         boostEnabled: params.boostDesired,
         boostCost: params.boostDesired ? Math.max(30, Math.round(params.entryCost * 0.25)) : 0,
-        boostImpact: params.boostDesired ? "+10% к весу участия" : "буст отключен",
+        boostImpact: params.boostDesired ? "влияние буста по настройкам комнаты" : "буст отключен",
         volatility: params.volatility,
         title: `Комната по запросу: ${params.seats} мест`
       }, "auto-created");

@@ -45,7 +45,7 @@ export function roomDtoToDomain(dto: RoomDto, currentUser?: TestUser, template?:
         ? `+${formatPercent(boostAbsoluteGainPercent)}% к шансу победы`
         : boostWeight
           ? `+${formatPercent(boostWeight)}% к весу участия`
-          : template?.boostImpact ?? "+10% к весу участия"
+          : template?.boostImpact ?? "влияние буста по шаблону"
       : "буст отключен",
     boostEnabled,
     boostAbsoluteGainPercent,
