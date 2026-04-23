@@ -31,7 +31,6 @@ export default function MatchmakingPage() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchPending, setSearchPending] = useState(false);
   const [searchRooms, setSearchRooms] = useState<Room[]>([]);
-  const [createdRoomId, setCreatedRoomId] = useState<string | null>(null);
   const { data: templates = [], isLoading: templatesLoading, error: templatesError } = useQuery({
     queryKey: roomTemplateQueryKeys.visible,
     queryFn: roomTemplateService.getVisibleTemplates
@@ -87,7 +86,6 @@ export default function MatchmakingPage() {
     setSearchError(null);
     setSearchPending(true);
     setSearched(true);
-    setCreatedRoomId(null);
     const totalEntryCost = (entryCost ?? 0) * seatsToBuy;
     if (user.balance < totalEntryCost) {
       setSearchError(`Недостаточно бонусных баллов: нужно ${formatBonus(totalEntryCost)}, на балансе ${formatBonus(user.balance)}.`);
@@ -103,8 +101,6 @@ export default function MatchmakingPage() {
       }, user);
       queryClient.removeQueries({ queryKey: roomQueryKeys.detail(room.id), exact: true });
       setSearchRooms([room]);
-      const existedBeforeSearch = initialRooms.some((item) => item.id === room.id);
-      setCreatedRoomId(existedBeforeSearch ? null : room.id);
     } catch (error) {
       setSearchError(matchmakingErrorMessage(error));
     } finally {
@@ -208,11 +204,6 @@ export default function MatchmakingPage() {
           </div>
         ) : visibleRooms.length ? (
           <>
-            {createdRoomId ? (
-              <div className="mb-4 rounded-[24px] bg-jade/10 p-4 text-sm font-semibold text-jade">
-                Свободной комнаты не было, поэтому создана новая. Откройте ее и выберите места.
-              </div>
-            ) : null}
             <div className="grid gap-5 lg:grid-cols-2">{visibleRooms.map((room) => <RoomCard key={room.id} room={room} />)}</div>
           </>
         ) : (

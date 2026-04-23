@@ -86,6 +86,7 @@ function RoundAuditCard({ round, index }: { round: Round; index: number }) {
   const winner = round.participants.find((participant) => participant.id === round.winnerId) ?? round.participants[0];
   const botsCount = round.participants.filter((participant) => participant.kind === "bot").length;
   const realCount = round.participants.length - botsCount;
+  const balanceRows = balanceRowsForAudit(round.balanceChanges);
 
   return (
     <Panel className="surface-solid relative overflow-hidden border-0 p-0 shadow-none before:hidden">
@@ -132,7 +133,7 @@ function RoundAuditCard({ round, index }: { round: Round; index: number }) {
           <section>
             <BlockTitle icon={<CircleDollarSign className="h-4 w-4" />} title="Изменения балансов" />
             <div className="mt-3 space-y-2">
-              {round.balanceChanges.map((change, changeIndex) => (
+              {balanceRows.map((change, changeIndex) => (
                 <BalanceAuditRow key={`${change.participantId}-${change.reason}-${changeIndex}`} change={change} />
               ))}
             </div>
@@ -267,4 +268,17 @@ function reasonLabel(reason: RoundBalanceChange["reason"]) {
     boost: "покупка буста",
     prize: "начисление фонда"
   }[reason];
+}
+
+function balanceRowsForAudit(changes: RoundBalanceChange[]) {
+  const winnersByName = new Set(
+    changes
+      .filter((change) => change.reason === "prize" && change.delta > 0)
+      .map((change) => change.participantName)
+  );
+
+  return changes.filter((change) => {
+    if (!winnersByName.has(change.participantName)) return true;
+    return change.reason === "prize" && change.delta > 0;
+  });
 }

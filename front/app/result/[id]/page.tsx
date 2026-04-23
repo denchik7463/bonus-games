@@ -125,6 +125,7 @@ export default function ResultPage() {
   const winnerSeat = winner?.seatNumber ? `Место ${winner.seatNumber}` : "Победивший слот";
   const isChinchillaRace = round.mode === "chinchilla-race";
   const financeRows = userFinanceRows(round, user.id);
+  const financeTotal = financeRows.find((row) => row.label === "Итог")?.value ?? round.balanceDelta;
   const openHistory = async () => {
     await queryClient.invalidateQueries({ queryKey: journalQueryKeys.me });
     router.push("/history");
@@ -154,9 +155,9 @@ export default function ResultPage() {
             </div>
             <div className="surface-solid flex items-center justify-between gap-4 rounded-[26px] px-5 py-4 md:min-w-[260px] md:flex-col md:items-stretch md:justify-center md:gap-2 md:text-center">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-smoke">Изменение баланса</p>
-              <p className={round.balanceDelta >= 0 ? "text-5xl font-black tracking-[-0.04em] text-jade" : "text-5xl font-black tracking-[-0.04em] text-ember"}>
-                {round.balanceDelta >= 0 ? "+" : ""}
-                {formatBonus(round.balanceDelta)}
+              <p className={financeTotal >= 0 ? "text-5xl font-black tracking-[-0.04em] text-jade" : "text-5xl font-black tracking-[-0.04em] text-ember"}>
+                {financeTotal >= 0 ? "+" : ""}
+                {formatBonus(financeTotal)}
               </p>
               <p className="text-xs text-smoke">за этот раунд</p>
             </div>
@@ -220,8 +221,8 @@ export default function ResultPage() {
             <h2 className="mt-2 text-3xl font-black tracking-[-0.04em] text-platinum">Финальная расшифровка</h2>
             <p className="mt-2 text-sm leading-6 text-smoke">Вход, буст и выигрыш собраны из результата раунда.</p>
           </div>
-          <p className={round.balanceDelta >= 0 ? "text-3xl font-black text-jade" : "text-3xl font-black text-ember"}>
-            {round.balanceDelta >= 0 ? "+" : ""}{formatBonus(round.balanceDelta)}
+          <p className={financeTotal >= 0 ? "text-3xl font-black text-jade" : "text-3xl font-black text-ember"}>
+            {financeTotal >= 0 ? "+" : ""}{formatBonus(financeTotal)}
           </p>
         </div>
         <div className="relative grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -312,11 +313,13 @@ function userFinanceRows(round: Round, userId: string) {
   const entry = userChanges.filter((change) => change.reason === "entry-reserve").reduce((sum, change) => sum + change.delta, 0);
   const boost = userChanges.filter((change) => change.reason === "boost").reduce((sum, change) => sum + change.delta, 0);
   const prize = userChanges.filter((change) => change.reason === "prize").reduce((sum, change) => sum + change.delta, 0);
+  const totalFromBreakdown = entry + boost + prize;
+  const total = userChanges.length ? totalFromBreakdown : round.balanceDelta;
   return [
     { label: "Вход", value: entry, tone: "ember" as const },
     { label: "Буст", value: boost, tone: boost < 0 ? "ember" as const : "muted" as const },
     { label: "Выигрыш", value: prize, tone: prize > 0 ? "jade" as const : "muted" as const },
-    { label: "Итог", value: round.balanceDelta, tone: round.balanceDelta >= 0 ? "jade" as const : "ember" as const }
+    { label: "Итог", value: total, tone: total >= 0 ? "jade" as const : "ember" as const }
   ];
 }
 

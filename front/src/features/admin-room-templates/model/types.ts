@@ -57,6 +57,7 @@ export type ConfigTestPlayer = {
 export type ConfigTestRequest = {
   players: ConfigTestPlayer[];
   baseWeight: number;
+  boostEnabled: boolean;
   boostBonus: number;
   boostCost: number;
   entryCost: number;
@@ -99,6 +100,7 @@ export type ConfigTestResponse = {
 
 export type ConfigReportParams = {
   baseWeight: number;
+  boostEnabled: boolean;
   boostBonus: number;
   boostCost: number;
   entryCost: number;

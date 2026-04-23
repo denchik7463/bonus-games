@@ -84,25 +84,41 @@ function mapParticipants(players: JournalParticipantDto[]): Participant[] {
   });
 }
 
-function findWinner(entry: JournalEntryDto, participants: Participant[], sourcePlayers: JournalParticipantDto[]) {
+function findWinner(entry: JournalEntryDto, participants: Participant[], sourcePlayers: JournalParticipantDto[]): Participant | undefined {
   const sourceWinner = sourcePlayers.find(isSourceWinner);
-  const winnerExternalId = entry.winnerPlayerExternalId ?? sourceWinner?.playerExternalId;
-  const winnerName = entry.winnerPlayerName ?? sourceWinner?.username;
-  const winnerSeat = normalizeWinnerSeat(entry.winnerPositionIndex, participants, sourcePlayers);
+  const sourceWinnerSeat = normalizeWinnerSeat(sourceWinner?.positionIndex, participants, sourcePlayers);
+  if (sourceWinner) {
+    const bySourceSeatAndId = participants.find((participant) =>
+      matchesParticipantByExternalId(participant, sourceWinner.playerExternalId)
+        && (sourceWinnerSeat === undefined || participant.seatNumber === sourceWinnerSeat)
+    );
+    if (bySourceSeatAndId) return bySourceSeatAndId;
 
-  return participants.find((participant) => matchesParticipantByExternalId(participant, winnerExternalId))
-    ?? participants.find((participant) => matchesParticipantByName(participant, winnerName))
-    ?? participants.find((participant) => {
-      if (!sourceWinner) return false;
-      return matchesParticipantByExternalId(participant, sourceWinner.playerExternalId)
-        || matchesParticipantByName(participant, sourceWinner.username);
-    })
-    ?? participants.find((participant) => Boolean(participant.winner) || participant.status?.toUpperCase() === "WINNER")
-    ?? participants.find((participant) => participant.seatNumber === winnerSeat)
-    ?? participants.find((participant) => {
-      const source = sourcePlayers.find((player) => player.playerExternalId === participant.userId || player.username === participant.name);
-      return Boolean(source && isSourceWinner(source));
-    });
+    if (sourceWinnerSeat !== undefined) {
+      const bySourceSeat = participants.find((participant) => participant.seatNumber === sourceWinnerSeat);
+      if (bySourceSeat) return bySourceSeat;
+    }
+
+    const bySourceName = participants.find((participant) => matchesParticipantByName(participant, sourceWinner.username));
+    if (bySourceName) return bySourceName;
+  }
+
+  const flaggedWinner = participants.find((participant) => Boolean(participant.winner) || participant.status?.toUpperCase() === "WINNER");
+  if (flaggedWinner) return flaggedWinner;
+
+  const winnerSeat = normalizeWinnerSeat(entry.winnerPositionIndex, participants, sourcePlayers);
+  if (winnerSeat !== undefined) {
+    const byWinnerSeat = participants.find((participant) => participant.seatNumber === winnerSeat);
+    if (byWinnerSeat) return byWinnerSeat;
+  }
+
+  const uniqueByExternalId = findUniqueParticipantByExternalId(participants, entry.winnerPlayerExternalId);
+  if (uniqueByExternalId) return uniqueByExternalId;
+
+  const uniqueByName = findUniqueParticipantByName(participants, entry.winnerPlayerName);
+  if (uniqueByName) return uniqueByName;
+
+  return undefined;
 }
 
 function normalizeWinnerFlags(participants: Participant[], winner: Participant | undefined) {
@@ -185,8 +201,11 @@ function mapRoundFinance(
     }
   }
 
-  const backendDelta = typeof sourcePlayer?.balanceDelta === "number" && Number.isFinite(sourcePlayer.balanceDelta)
-    ? sourcePlayer.balanceDelta
+  const backendDeltas = sourcePlayers
+    .map((player) => player.balanceDelta)
+    .filter((delta): delta is number => typeof delta === "number" && Number.isFinite(delta));
+  const backendDelta = backendDeltas.length
+    ? backendDeltas.reduce((sum, delta) => sum + delta, 0)
     : undefined;
   const derivedDelta = userChanges.reduce((sum, change) => sum + change.delta, 0);
   const userBalanceDelta = backendDelta !== undefined && (backendDelta !== 0 || derivedDelta === 0)
@@ -338,6 +357,18 @@ function matchesParticipantByExternalId(participant: Participant, externalId: st
 function matchesParticipantByName(participant: Participant, name: string | undefined) {
   if (!name) return false;
   return participant.name === name;
+}
+
+function findUniqueParticipantByExternalId(participants: Participant[], externalId: string | undefined) {
+  if (!externalId) return null;
+  const matches = participants.filter((participant) => matchesParticipantByExternalId(participant, externalId));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function findUniqueParticipantByName(participants: Participant[], name: string | undefined) {
+  if (!name) return null;
+  const matches = participants.filter((participant) => matchesParticipantByName(participant, name));
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function positiveNumber(value?: number) {

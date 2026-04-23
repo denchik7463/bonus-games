@@ -49,6 +49,7 @@ export function formValuesToConfigRequest(values: RoomTemplateFormValues): Confi
   return {
     players,
     baseWeight: values.baseWeight,
+    boostEnabled: values.boostEnabled,
     boostBonus: values.boostEnabled ? values.boostWeight : 0,
     boostCost: values.boostEnabled ? values.boostCost : 0,
     entryCost: values.entryCost,
@@ -61,6 +62,7 @@ export function formValuesToReportParams(values: RoomTemplateFormValues): Config
   const request = formValuesToConfigRequest(values);
   return {
     baseWeight: request.baseWeight,
+    boostEnabled: request.boostEnabled,
     boostBonus: request.boostBonus,
     boostCost: request.boostCost,
     entryCost: request.entryCost,

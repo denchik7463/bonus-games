@@ -28,6 +28,7 @@ export function HistoryRoundCard({
     .reduce((sum, change) => sum + Math.abs(change.delta), 0);
   const placed = placedFromChanges || (round.entryCost * Math.max(1, userSeatCount) + (round.boostUsed ? round.boostCost : 0));
   const statusWon = isRoundWonByUser(round, currentUserId);
+  const balanceRows = balanceRowsForAudit(round.balanceChanges);
 
   return (
     <article className="surface-solid relative overflow-hidden rounded-[30px] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
@@ -150,7 +151,7 @@ export function HistoryRoundCard({
             <section className="rounded-[26px] bg-white/[0.035] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.052)]">
               <h3 className="text-lg font-semibold text-platinum">Изменения баланса</h3>
               <div className="mt-4 space-y-2">
-                {round.balanceChanges.map((change, index) => (
+                {balanceRows.map((change, index) => (
                   <BalanceRow key={`${change.participantId}-${change.reason}-${change.delta}-${index}`} change={change} currentUserId={currentUserId} />
                 ))}
               </div>
@@ -254,6 +255,19 @@ function reasonLabel(reason: RoundBalanceChange["reason"]) {
     boost: "покупка буста",
     prize: "начисление приза"
   }[reason];
+}
+
+function balanceRowsForAudit(changes: RoundBalanceChange[]) {
+  const winnersByName = new Set(
+    changes
+      .filter((change) => change.reason === "prize" && change.delta > 0)
+      .map((change) => change.participantName)
+  );
+
+  return changes.filter((change) => {
+    if (!winnersByName.has(change.participantName)) return true;
+    return change.reason === "prize" && change.delta > 0;
+  });
 }
 
 function formatDateTime(value: string) {

@@ -46,4 +46,25 @@ public interface RoomPlayerRepository extends JpaRepository<RoomPlayer, Long> {
     List<RoomPlayer> findByUserIdOrderByJoinTimeDescIdDesc(UUID userId);
 
     List<RoomPlayer> findByJoinTimeBetweenOrderByJoinTimeAsc(LocalDateTime start, LocalDateTime end);
+
+    @Query("""
+        select count(distinct rp.userId)
+        from RoomPlayer rp
+        join rp.room r
+        where rp.bot = false
+          and r.status in :statuses
+        """)
+    Long countDistinctRealUsersInRoomStatuses(List<String> statuses);
+
+    @Query("""
+        select rp
+        from RoomPlayer rp
+        join fetch rp.room r
+        where rp.bot = false
+          and rp.joinTime is not null
+          and rp.joinTime <= :end
+          and (r.finishedAt is null or r.finishedAt >= :start)
+        order by rp.joinTime asc, rp.id asc
+        """)
+    List<RoomPlayer> findRealPlayersForOnlineTimeline(LocalDateTime start, LocalDateTime end);
 }

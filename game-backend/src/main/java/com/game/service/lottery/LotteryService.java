@@ -20,16 +20,6 @@ public class LotteryService {
     }
 
     public Map<String, Object> run(Map<String, Object> body) {
-        List<Map<String, Object>> playersIn = castPlayers(body.get("players"));
-
-        List<Player> players = new ArrayList<>();
-        for (Map<String, Object> p : playersIn) {
-            players.add(new Player(
-                    String.valueOf(p.getOrDefault("name", "Igrok")),
-                    Boolean.TRUE.equals(p.get("boost"))
-            ));
-        }
-
         Config cfg = new Config();
         cfg.baseWeight = toDouble(body.get("baseWeight"), 100);
         cfg.boostBonus = toDouble(body.get("boostBonus"), 10);
@@ -37,6 +27,16 @@ public class LotteryService {
         cfg.entryCost = toDouble(body.get("entryCost"), 1000);
         cfg.simRounds = toInt(body.get("simRounds"), 10000);
         cfg.winnerPercent = clamp(toDouble(body.get("winnerPercent"), 80), 0, 100);
+        cfg.boostEnabled = toBoolean(body.get("boostEnabled"), cfg.boostBonus > 0 || cfg.boostCost > 0);
+
+        List<Map<String, Object>> playersIn = castPlayers(body.get("players"));
+        List<Player> players = new ArrayList<>();
+        for (Map<String, Object> p : playersIn) {
+            players.add(new Player(
+                    String.valueOf(p.getOrDefault("name", "Igrok")),
+                    Boolean.TRUE.equals(p.get("boost"))
+            ));
+        }
 
         return runEngine(players, cfg);
     }
@@ -66,7 +66,7 @@ public class LotteryService {
         double minRoi = Double.POSITIVE_INFINITY;
 
         for (int i = 0; i < playerCount; i++) {
-            double cost = cfg.entryCost + (players.get(i).boost ? cfg.boostCost : 0);
+            double cost = cfg.entryCost + (cfg.boostEnabled && players.get(i).boost ? cfg.boostCost : 0);
             double prize = probs[i] * prizePool;
             playerRoi[i] = cost > 0 ? prize / cost : 0;
             sumRoi += playerRoi[i];
@@ -79,7 +79,7 @@ public class LotteryService {
         double avgRoi = playerCount > 0 ? sumRoi / playerCount : 0;
         double minPlayerRoi = playerCount > 0 ? minRoi : 0;
         double unprofitShare = playerCount > 0 ? (double) unprofitable / playerCount : 0;
-        double boostImpact = computeBoostImpactShare(players, probs);
+        double boostImpact = computeBoostImpactShare(players, probs, cfg);
         double boostEfficiency = computeBoostEfficiencyVsCosts(players, probs, cfg, prizePool);
 
         List<Warning> warnings = buildWarnings(players, cfg, houseProfit, houseMargin, avgRoi, boostImpact, boostEfficiency);
@@ -133,11 +133,13 @@ public class LotteryService {
         if (cfg.entryCost < 1000 || cfg.entryCost > 10000) {
             warnings.add(new Warning(WarnLevel.ERROR, "ENTRY_COST_OUT_OF_RANGE", "Цена входа вне диапазона", "Нормальный диапазон 1000-10000."));
         }
-        if (cfg.boostCost <= 0) {
-            warnings.add(new Warning(WarnLevel.ERROR, "BOOST_COST_NON_POSITIVE", "Некорректная цена буста", "Цена буста должна быть больше 0."));
-        }
-        if (cfg.boostCost >= cfg.entryCost) {
-            warnings.add(new Warning(WarnLevel.ERROR, "BOOST_TOO_EXPENSIVE", "Слишком дорогой буст", "Цена буста должна быть ниже цены входа."));
+        if (cfg.boostEnabled) {
+            if (cfg.boostCost <= 0) {
+                warnings.add(new Warning(WarnLevel.ERROR, "BOOST_COST_NON_POSITIVE", "Некорректная цена буста", "Цена буста должна быть больше 0."));
+            }
+            if (cfg.boostCost >= cfg.entryCost) {
+                warnings.add(new Warning(WarnLevel.ERROR, "BOOST_TOO_EXPENSIVE", "Слишком дорогой буст", "Цена буста должна быть ниже цены входа."));
+            }
         }
         if (cfg.winnerPercent < 50 || cfg.winnerPercent > 95) {
             warnings.add(new Warning(WarnLevel.ERROR, "WINNER_PERCENT_BLOCKED", "Критическое значение выплаты победителю", "Допустимый диапазон 50%-95%."));
@@ -150,13 +152,13 @@ public class LotteryService {
         if (avgRoi < 0.75) {
             warnings.add(new Warning(WarnLevel.WARNING, "AVG_ROI_CRITICAL", "Критически низкая привлекательность", "Средний ROI ниже порога 0.75."));
         }
-        if (boostImpact > 0.10) {
+        if (cfg.boostEnabled && boostImpact > 0.10) {
             warnings.add(new Warning(WarnLevel.ERROR, "BOOST_IMPACT_HIGH", "Сильное влияние буста", "Буст дает слишком большой перекос (>10%)."));
         }
-        if (cfg.boostCost > 0 && boostEfficiency < 0.05) {
+        if (cfg.boostEnabled && cfg.boostCost > 0 && boostEfficiency < 0.05) {
             warnings.add(new Warning(WarnLevel.WARNING, "BOOST_VALUE_LOW", "Буст не оправдывает цену", "Эффективность буста ниже 5%."));
         }
-        if (cfg.boostCost > 0 && boostEfficiency > 0.10) {
+        if (cfg.boostEnabled && cfg.boostCost > 0 && boostEfficiency > 0.10) {
             warnings.add(new Warning(WarnLevel.WARNING, "BOOST_UNFAIR_ADVANTAGE", "Слишком высокая эффективность буста", "Эффективность буста выше 10%."));
         }
         if (houseMargin > 0.35) {
@@ -177,7 +179,7 @@ public class LotteryService {
     private double[] computeWeights(List<Player> players, Config cfg) {
         double[] weights = new double[players.size()];
         for (int i = 0; i < players.size(); i++) {
-            weights[i] = cfg.baseWeight + (players.get(i).boost ? cfg.boostBonus : 0);
+            weights[i] = cfg.baseWeight + (cfg.boostEnabled && players.get(i).boost ? cfg.boostBonus : 0);
         }
         return weights;
     }
@@ -194,8 +196,8 @@ public class LotteryService {
         return probs;
     }
 
-    private double computeBoostImpactShare(List<Player> players, double[] probs) {
-        if (players.isEmpty()) {
+    private double computeBoostImpactShare(List<Player> players, double[] probs, Config cfg) {
+        if (players.isEmpty() || !cfg.boostEnabled) {
             return 0;
         }
         double sumLift = 0;
@@ -211,7 +213,7 @@ public class LotteryService {
     }
 
     private double computeBoostEfficiencyVsCosts(List<Player> players, double[] probs, Config cfg, double prizePool) {
-        if (players.isEmpty() || cfg.boostCost <= 0) {
+        if (players.isEmpty() || !cfg.boostEnabled || cfg.boostCost <= 0) {
             return 0;
         }
         double plain = 1.0 / players.size();
@@ -303,6 +305,26 @@ public class LotteryService {
         }
     }
 
+    private boolean toBoolean(Object value, boolean defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value instanceof Number number) {
+            return number.intValue() != 0;
+        }
+        String normalized = String.valueOf(value).trim().toLowerCase();
+        if ("true".equals(normalized) || "1".equals(normalized) || "yes".equals(normalized)) {
+            return true;
+        }
+        if ("false".equals(normalized) || "0".equals(normalized) || "no".equals(normalized)) {
+            return false;
+        }
+        return defaultValue;
+    }
+
     private double clamp(double value, double min, double max) {
         return Math.max(min, Math.min(max, value));
     }
@@ -335,6 +357,7 @@ public class LotteryService {
         private double baseWeight = 100;
         private double boostBonus = 10;
         private double boostCost = 0;
+        private boolean boostEnabled = true;
         private double entryCost = 1000;
         private double winnerPercent = 80;
         private int simRounds = 10000;

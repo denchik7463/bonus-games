@@ -18,9 +18,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -79,10 +82,7 @@ public class DashboardService {
     }
 
     private Long getCurrentActivePlayers() {
-        return roomRepository.findByStatusIn(ACTIVE_ROOM_STATUSES)
-                .stream()
-                .mapToLong(room -> room.getCurrentPlayers() == null ? 0 : room.getCurrentPlayers())
-                .sum();
+        return roomPlayerRepository.countDistinctRealUsersInRoomStatuses(ACTIVE_ROOM_STATUSES);
     }
 
     private Long getCurrentActiveRooms() {
@@ -92,15 +92,35 @@ public class DashboardService {
     private List<DashboardMetricPointResponse> getActivePlayersTimeline(LocalDateTime start,
                                                                        LocalDateTime end,
                                                                        int bucketMinutes) {
-        List<RoomPlayer> players = roomPlayerRepository.findByJoinTimeBetweenOrderByJoinTimeAsc(start, end);
         Map<LocalDateTime, Long> buckets = createEmptyBuckets(start, end, bucketMinutes);
+        List<RoomPlayer> players = roomPlayerRepository.findRealPlayersForOnlineTimeline(start, end);
 
-        for (RoomPlayer player : players) {
-            LocalDateTime bucket = toBucket(player.getJoinTime(), start, bucketMinutes);
-            buckets.put(bucket, buckets.getOrDefault(bucket, 0L) + 1);
+        for (LocalDateTime bucketTime : buckets.keySet()) {
+            Set<UUID> uniqueUsers = new HashSet<>();
+            for (RoomPlayer player : players) {
+                if (isRealPlayerOnlineAt(player, bucketTime)) {
+                    uniqueUsers.add(player.getUserId());
+                }
+            }
+            buckets.put(bucketTime, (long) uniqueUsers.size());
         }
 
         return toSortedPoints(buckets);
+    }
+
+    private boolean isRealPlayerOnlineAt(RoomPlayer player, LocalDateTime bucketTime) {
+        if (player == null || player.getUserId() == null || player.getJoinTime() == null) {
+            return false;
+        }
+        if (player.getJoinTime().isAfter(bucketTime)) {
+            return false;
+        }
+        Room room = player.getRoom();
+        if (room == null) {
+            return false;
+        }
+        LocalDateTime finishedAt = room.getFinishedAt();
+        return finishedAt == null || finishedAt.isAfter(bucketTime);
     }
 
     private List<DashboardMetricPointResponse> getRoomCountTimeline(LocalDateTime start,
