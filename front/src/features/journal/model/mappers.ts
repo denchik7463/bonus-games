@@ -254,26 +254,27 @@ function mapBalanceChanges(entry: JournalEntryDto): RoundBalanceChange[] {
         reason: delta > 0 ? "prize" : "entry-reserve"
       };
     });
-  return aggregateBalanceChanges(changes);
+  return aggregateNetBalanceChanges(changes);
 }
 
-function aggregateBalanceChanges(changes: RoundBalanceChange[]) {
+function aggregateNetBalanceChanges(changes: RoundBalanceChange[]) {
   const grouped = new Map<string, RoundBalanceChange>();
   for (const change of changes) {
-    const key = `${change.participantName}:${change.kind}:${change.reason}`;
+    const key = `${change.participantName}:${change.kind}`;
     const existing = grouped.get(key);
     if (!existing) {
-      grouped.set(key, change);
+      grouped.set(key, { ...change });
       continue;
     }
     grouped.set(key, {
       ...existing,
-      delta: change.reason === "prize"
-        ? Math.max(existing.delta, change.delta)
-        : existing.delta + change.delta
+      delta: existing.delta + change.delta
     });
   }
-  return Array.from(grouped.values());
+  return Array.from(grouped.values()).map((change) => ({
+    ...change,
+    reason: change.delta > 0 ? "prize" : "entry-reserve"
+  }));
 }
 
 function winnerBalanceDelta(players: JournalParticipantDto[], winnerId?: string) {
