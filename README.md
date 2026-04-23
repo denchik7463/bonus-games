@@ -80,7 +80,7 @@ curl -s "http://localhost:8081/api/profile/me" \
 ## Документация
 
 - Стартовая страница docs: [docs/README.md](./docs/README.md)
-- Руководство пользователя: [docs/USER_GUIDE.md](./docs/USER_GUIDE.md)
+- Руководство пользователя: [docs/USER.md](./docs/USER.md)
 - Обзор проекта: [docs/OVERVIEW.md](./docs/OVERVIEW.md)
 - Архитектура: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 - Пользователь и кошелек: [docs/USER_WALLET.md](./docs/USER_WALLET.md)
