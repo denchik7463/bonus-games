@@ -20,7 +20,7 @@ export function drawCardsScene(ctx: CanvasRenderingContext2D, payload: Payload, 
   drawCardArena(ctx, time, progress);
   drawPremiumFrame(ctx, time, progress);
   drawHeader(ctx, progress, winnerName);
-  drawSideParticipants(ctx, payload, winner?.id);
+  drawSideParticipants(ctx, payload, winner?.id, progress);
   drawDecks(ctx, time, progress);
   drawCardTrails(ctx, progress, time);
   drawNameRitual(ctx, decoys, progress, time);
@@ -149,7 +149,7 @@ function drawHeader(ctx: CanvasRenderingContext2D, progress: number, winnerName:
   label(ctx, "МАГИЯ ИМЕНИ", 450, 69, "#ffcd18", 14, "900", "center");
   const subtitle = progress < 0.5
     ? "карты пробуют чужие фрагменты"
-    : progress < 0.86
+    : progress < 0.9
       ? "буквы сходятся к настоящему имени"
       : `${winnerName} собирается полностью`;
   label(ctx, subtitle, 450, 88, "#b9b3a7", 12, "700", "center");
@@ -261,7 +261,7 @@ function drawFinalName(ctx: CanvasRenderingContext2D, cards: LetterCard[], progr
   roundRect(ctx, 194, 154, 512, 118, 26);
   ctx.stroke();
   ctx.shadowBlur = 0;
-  label(ctx, "ФИНАЛЬНОЕ ИМЯ", 450, 145, "#ffcd18", 12, "900", "center");
+  label(ctx, progress > 0.9 ? "ФИНАЛЬНОЕ ИМЯ" : "ФИНАЛЬНАЯ СБОРКА", 450, 145, "#ffcd18", 12, "900", "center");
 
   cards.forEach((card) => {
     const tx = targetX(winnerName, card.index);
@@ -271,11 +271,12 @@ function drawFinalName(ctx: CanvasRenderingContext2D, cards: LetterCard[], progr
     const x = lerp(card.fromX, tx, t);
     const y = lerp(card.fromY, ty, t) - arc;
     const scale = 0.92 + lock * 0.12 + Math.sin(time * 8 + card.index) * 0.015 * (1 - lock);
-    drawLetterCard(ctx, x, y, card.char, card.rotation * (1 - t), scale, card.color, true);
+    const revealChar = progress > 0.9;
+    drawLetterCard(ctx, x, y, revealChar ? card.char : mysteryChar(card.index, time), card.rotation * (1 - t), scale, card.color, revealChar);
   });
 
-  if (progress > 0.86) {
-    const sweep = smoothstep(0.86, 0.96, progress);
+  if (progress > 0.9) {
+    const sweep = smoothstep(0.9, 0.97, progress);
     const x = lerp(208, 692, sweep);
     const beam = ctx.createLinearGradient(x - 90, 212, x + 90, 212);
     beam.addColorStop(0, "rgba(255,255,255,0)");
@@ -285,8 +286,8 @@ function drawFinalName(ctx: CanvasRenderingContext2D, cards: LetterCard[], progr
     roundRect(ctx, x - 90, 164, 180, 96, 22);
     ctx.fill();
   }
-  if (progress > 0.82) {
-    drawWinnerCrown(ctx, 450, 118, smoothstep(0.82, 0.95, progress));
+  if (progress > 0.91) {
+    drawWinnerCrown(ctx, 450, 118, smoothstep(0.91, 0.98, progress));
   }
   ctx.restore();
 }
@@ -352,7 +353,7 @@ function drawBottomFeed(ctx: CanvasRenderingContext2D, payload: Payload, decoys:
     { at: 0.2, text: "фрагмент найден" },
     { at: 0.42, text: "след не подошел" },
     { at: 0.66, text: "карты меняют порядок" },
-    { at: 0.86, text: "собираем финальное слово" }
+    { at: 0.88, text: "собираем финальное слово" }
   ];
   steps.forEach((step, index) => {
     const active = progress >= step.at;
@@ -370,7 +371,7 @@ function drawBottomFeed(ctx: CanvasRenderingContext2D, payload: Payload, decoys:
   const shown = payload.participants.slice(0, 6);
   shown.forEach((participant, index) => {
     const x = 646 + index * 30;
-    const winner = participant.id === payload.winnerId;
+    const winner = progress > 0.91 && participant.id === payload.winnerId;
     ctx.fillStyle = winner ? "#ffcd18" : "rgba(237,232,220,.16)";
     ctx.beginPath();
     ctx.arc(x, 352, winner ? 7 : 5, 0, Math.PI * 2);
@@ -379,14 +380,14 @@ function drawBottomFeed(ctx: CanvasRenderingContext2D, payload: Payload, decoys:
   ctx.restore();
 }
 
-function drawSideParticipants(ctx: CanvasRenderingContext2D, payload: Payload, winnerId: string | undefined) {
+function drawSideParticipants(ctx: CanvasRenderingContext2D, payload: Payload, winnerId: string | undefined, progress: number) {
   const participants = payload.participants.slice(0, 8);
   participants.forEach((participant, index) => {
     const left = index % 2 === 0;
     const row = Math.floor(index / 2);
     const x = left ? 62 : 838;
     const y = 92 + row * 54;
-    const active = participant.id === winnerId;
+    const active = progress > 0.91 && participant.id === winnerId;
     ctx.save();
     ctx.shadowColor = active ? "rgba(255,205,24,.20)" : "rgba(0,0,0,.15)";
     ctx.shadowBlur = active ? 18 : 6;
@@ -475,6 +476,11 @@ function buildLetterCards(name: string, centerX: number, baselineY: number, time
 function targetX(name: string, index: number) {
   const gap = name.length > 8 ? 42 : 48;
   return 450 - ((name.length - 1) * gap) / 2 + index * gap;
+}
+
+function mysteryChar(index: number, time: number) {
+  const alphabet = "АУРУМXYZ789";
+  return alphabet[(index * 3 + Math.floor(time * 8)) % alphabet.length];
 }
 
 function cleanName(value: string) {

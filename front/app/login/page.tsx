@@ -208,7 +208,7 @@ export default function LoginPage() {
                 </div>
 
                 <form onSubmit={submitAuth} className="space-y-4">
-                  <AuthField icon={mode === "register" ? <UserPlus className="h-4 w-4" /> : <Mail className="h-4 w-4" />} label="Имя пользователя" placeholder="denis" value={username} onChange={setUsername} />
+                  <AuthField icon={mode === "register" ? <UserPlus className="h-4 w-4" /> : <Mail className="h-4 w-4" />} label="Имя пользователя" placeholder="Имя пользователя" value={username} onChange={setUsername} />
                   {mode === "register" ? (
                     <>
                       <AuthField
@@ -237,7 +237,7 @@ export default function LoginPage() {
                       </label>
                     </>
                   ) : null}
-                  <AuthField icon={<LockKeyhole className="h-4 w-4" />} label="Пароль" placeholder="secret123" type="password" value={password} onChange={setPassword} />
+                  <AuthField icon={<LockKeyhole className="h-4 w-4" />} label="Пароль" placeholder="Пароль" type="password" value={password} onChange={setPassword} />
                   {authError ? (
                     <div className="rounded-[22px] bg-ember/10 px-4 py-3 text-sm leading-6 text-ember">
                       {authError}

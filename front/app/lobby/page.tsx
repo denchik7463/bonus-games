@@ -26,8 +26,11 @@ export default function LobbyPage() {
   return (
     <AppFrame>
       <section className="lobby-hero-slab relative mb-8 min-h-[560px] overflow-hidden rounded-[36px] bg-[rgba(9,10,13,0.98)]">
-        <Image src="https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1800&q=80" alt="" fill className="object-cover opacity-24" priority />
-        <div className="lobby-hero-veil absolute inset-[-8%] bg-[radial-gradient(circle_at_78%_12%,rgba(255,205,24,.2),transparent_28%),linear-gradient(110deg,rgba(5,5,5,.96),rgba(5,6,8,.86)_52%,rgba(5,6,8,.52))]" />
+        <Image src="/Main.png" alt="" fill className="scale-105 object-cover object-center opacity-40 blur-[2px]" priority unoptimized />
+        <div className="absolute inset-y-0 right-0 w-[68%] max-w-[920px] opacity-95">
+          <Image src="/Main.png" alt="" fill className="object-contain object-right drop-shadow-[0_34px_90px_rgba(0,0,0,0.46)]" priority unoptimized />
+        </div>
+        <div className="lobby-hero-veil absolute inset-0 bg-[radial-gradient(circle_at_78%_12%,rgba(255,205,24,.16),transparent_30%),linear-gradient(105deg,rgba(5,5,5,.97),rgba(5,6,8,.88)_45%,rgba(5,6,8,.42)_72%,rgba(5,6,8,.16))]" />
         <div className="brand-scope left-[58%] top-[12%] h-[340px] w-[340px] motion-safe:animate-[lobby-brand-drift_18s_ease-in-out_infinite]" />
         <div className="relative z-10 flex min-h-[560px] max-w-4xl flex-col justify-center p-6 md:p-10 xl:p-12">
           <div className="mb-5 flex flex-wrap gap-2">
@@ -38,8 +41,7 @@ export default function LobbyPage() {
           <h1 className="brand-display text-balance text-5xl font-black text-platinum md:text-7xl">
             VIP-комнаты,
             <br />
-            где каждый
-            <span className="brand-marker"> розыгрыш</span>
+            где каждый <span className="brand-marker"> розыгрыш</span>
             <br />
             ощущается
             <span className="text-gold"> событием</span>.

@@ -218,7 +218,6 @@ export default function RoomPage() {
       if (resultIdFromSocket) {
         rememberRoundMode(resultIdFromSocket, finishedRoomMode);
         setOpeningResultId(resultIdFromSocket);
-        router.replace(`/round/${resultIdFromSocket}`);
         return;
       }
 
@@ -229,7 +228,6 @@ export default function RoomPage() {
         if (resultId) {
           rememberRoundMode(resultId, finishedRoomMode);
           setOpeningResultId(resultId);
-          router.replace(`/round/${resultId}`);
           return;
         }
         const journalResultId = attempt > 0 ? await findFinishedRoundIdInJournal(finishedRoomId, user) : null;
@@ -237,7 +235,6 @@ export default function RoomPage() {
         if (journalResultId) {
           rememberRoundMode(journalResultId, finishedRoomMode);
           setOpeningResultId(journalResultId);
-          router.replace(`/round/${journalResultId}`);
           return;
         }
         await delay(260 + attempt * 120);
@@ -249,7 +246,7 @@ export default function RoomPage() {
     return () => {
       cancelled = true;
     };
-  }, [finishResultSignal, finished, openingResultId, room, router, roomEvents, roomSocket.roomState, user]);
+  }, [finishResultSignal, finished, openingResultId, room, roomEvents, roomSocket.roomState, user]);
 
   if (!room) {
     return (
@@ -261,10 +258,14 @@ export default function RoomPage() {
     );
   }
 
-  if (finished && inlineRound && !openingResultId) {
+  if (finished && inlineRound) {
     return (
       <AppFrame>
-        <RoundBroadcast round={inlineRound} autoRedirect={false} />
+        <RoundBroadcast
+          round={inlineRound}
+          autoRedirect={Boolean(openingResultId)}
+          resultHref={openingResultId ? `/result/${openingResultId}` : undefined}
+        />
       </AppFrame>
     );
   }
@@ -534,7 +535,7 @@ function SeatSlots({
   selectionBlocked: boolean;
   onChange: (seats: number[]) => void;
 }) {
-  const isChinchillaRace = room.mode === "chinchilla-race";
+  const isChinchillaMode = room.mode === "chinchilla-race" || room.mode === "duel-clash";
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: room.seats }, (_, index) => index + 1).map((seat) => {
@@ -589,7 +590,7 @@ function SeatSlots({
               "relative inline-flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-[20px] text-lg font-black shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
               selected ? selectionBlocked ? "ring-1 ring-ember/30 bg-ember/10" : "ring-1 ring-gold/35 bg-gold/12" : mine ? "ring-1 ring-jade/30 bg-jade/12" : bot ? "ring-1 ring-violet-200/20 bg-violet-200/10 text-violet-200" : occupied ? "ring-1 ring-white/10 bg-white/[0.06] text-platinum" : "ring-1 ring-gold/20 bg-gold/10 text-gold"
             ].join(" ")}>
-              {isChinchillaRace ? (
+              {isChinchillaMode ? (
                 <>
                   <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_35%_30%,rgba(255,255,255,0.25),transparent_42%),radial-gradient(circle_at_50%_70%,rgba(255,205,24,0.10),transparent_62%)]" />
                   <span className="pointer-events-none absolute inset-0 rounded-[20px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]" />
@@ -696,7 +697,7 @@ function seatMascotSource(seatIndex: number) {
     "/mascots/ch7.png",
     "/mascots/ch8.png",
     "/mascots/ch9.png",
-    encodeURI("/mascots/сh10.png")
+    "/mascots/ch10.png"
   ];
   return sources[Math.max(0, seatIndex) % sources.length];
 }

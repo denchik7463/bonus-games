@@ -111,6 +111,12 @@ const backendToFrontend: Record<string, GameMode> = Object.values(GAME_MECHANICS
   "CHINCHILLAS",
   "CHINCHILLA_RUN",
   "CHINCHILLA_SPRINT",
+  "CHINCHILLA_RACING",
+  "CHINCHILLA_RACES",
+  "RACING_CHINCHILLAS",
+  "SHINSHILLA",
+  "SHINSHILLA_RACE",
+  "SHINSHILLA_RACING",
   "chinchilla-race",
   "Гонки шиншилл",
   "ГОНКИ ШИНШИЛЛ"

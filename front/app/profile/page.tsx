@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Area, AreaChart, CartesianGrid, Dot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -24,17 +25,33 @@ export default function ProfilePage() {
   const { data: userRounds = [], error: historyError, isLoading: historyLoading } = useQuery({
     queryKey: [...journalQueryKeys.me, user.id],
     queryFn: () => journalService.getMyJournal(user),
-    staleTime: 30_000,
-    refetchOnMount: false
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true
   });
   const { data: winStreak, isLoading: streakLoading } = useQuery({
     queryKey: journalQueryKeys.myWinStreak(user.id),
     queryFn: () => journalService.getMyWinStreak(),
-    staleTime: 30_000,
-    refetchOnMount: false,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
     retry: false
   });
   const normalizedRounds = uniqueRoundsById(userRounds);
+  const journalWinStreak = useMemo(() => currentWinStreakFromRounds(normalizedRounds, user.id), [normalizedRounds, user.id]);
+  const effectiveWinStreak = useMemo(() => {
+    const backendCount = winStreak?.currentWinStreak ?? 0;
+    const currentWinStreak = Math.max(backendCount, journalWinStreak.count);
+    if (!winStreak && currentWinStreak <= 0) return null;
+    return {
+      userId: winStreak?.userId || user.id,
+      username: winStreak?.username || user.name,
+      currentWinStreak,
+      latestGameResultId: winStreak?.latestGameResultId ?? journalWinStreak.latestGameResultId,
+      latestGameAt: winStreak?.latestGameAt ?? journalWinStreak.latestGameAt,
+      calculatedAt: winStreak?.calculatedAt ?? null
+    };
+  }, [journalWinStreak.count, journalWinStreak.latestGameAt, journalWinStreak.latestGameResultId, user.id, user.name, winStreak]);
   const wins = normalizedRounds.filter((round) => isRoundWonByUser(round, user.id)).length;
   const winRate = normalizedRounds.length ? Math.round((wins / normalizedRounds.length) * 1000) / 10 : 0;
   const totalDelta = normalizedRounds.reduce((sum, round) => sum + round.balanceDelta, 0);
@@ -86,7 +103,7 @@ export default function ProfilePage() {
                 <SoftMetric label="Раунды" value={`${normalizedRounds.length}`} />
                 <SoftMetric label="Win-rate" value={`${winRate.toFixed(winRate % 1 === 0 ? 0 : 1)}%`} tone="gold" />
               </div>
-              <WinStreakCard streak={winStreak ?? null} loading={streakLoading} />
+              <WinStreakCard streak={effectiveWinStreak} loading={streakLoading && !effectiveWinStreak} />
               <ButtonLink href="/matchmaking" className="mt-5 w-full justify-center">Сыграть следующий раунд</ButtonLink>
             </div>
           </Panel>
@@ -284,4 +301,24 @@ function EmptyState({ title, description, action, href }: { title: string; descr
       <ButtonLink href={href} className="mt-5">{action}</ButtonLink>
     </div>
   );
+}
+
+function currentWinStreakFromRounds(rounds: ReturnType<typeof uniqueRoundsById>, userId: string) {
+  const ordered = rounds
+    .slice()
+    .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
+  let count = 0;
+  let latestGameResultId: string | null = null;
+  let latestGameAt: string | null = null;
+
+  for (const round of ordered) {
+    if (!latestGameResultId) {
+      latestGameResultId = round.id;
+      latestGameAt = round.startedAt;
+    }
+    if (!isRoundWonByUser(round, userId)) break;
+    count += 1;
+  }
+
+  return { count, latestGameResultId, latestGameAt };
 }

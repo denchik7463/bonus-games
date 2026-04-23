@@ -66,6 +66,9 @@ export type RoomDto = {
   winnerPlayerExternalId?: string;
   winnerPlayerName?: string;
   gameMechanic?: BackendGameMechanic | string;
+  mechanic?: BackendGameMechanic | string;
+  gameMode?: BackendGameMechanic | string;
+  gameType?: BackendGameMechanic | string;
   players?: RoomPlayerDto[];
   participants?: RoomPlayerDto[];
 };

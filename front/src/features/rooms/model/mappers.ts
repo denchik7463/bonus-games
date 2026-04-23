@@ -34,7 +34,9 @@ export function roomDtoToDomain(dto: RoomDto, currentUser?: TestUser, template?:
     prizePool: positiveNumber(dto.prizeFund) ?? entryCost * maxPlayers,
     fillRate: maxPlayers > 0 ? Math.min(100, Math.round((occupied / maxPlayers) * 100)) : 0,
     title: dto.templateName ?? template?.title ?? `Комната ${maxPlayers}x${entryCost}`,
-    mode: dto.gameMechanic ? modeFromBackendMechanic(dto.gameMechanic) : template?.mode ?? "arena-sprint",
+    mode: dto.gameMechanic || dto.mechanic || dto.gameMode || dto.gameType
+      ? modeFromBackendMechanic(dto.gameMechanic ?? dto.mechanic ?? dto.gameMode ?? dto.gameType)
+      : template?.mode ?? "arena-sprint",
     entryCost,
     boostCost,
     boostLabel: boostEnabled ? template?.boostLabel ?? "Буст участия" : "Буст отключен",

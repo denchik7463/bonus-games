@@ -27,7 +27,7 @@ export const visualGameModules: Record<GameMode, VisualGameModule> = {
     id: "claw-machine",
     title: "Призовой автомат",
     phases: ["intro", "live", "suspense", "reveal", "result"],
-    durationMs: 16800,
+    durationMs: 20800,
     description: "Аркадный автомат с ярким краном, ложной попыткой и финальным выпадением победной капсулы."
   },
   "slot-reveal": {

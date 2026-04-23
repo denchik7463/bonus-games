@@ -218,6 +218,8 @@ function DuelBattleLog({ round, phase }: { round: Round; phase: RoundPhase }) {
         {steps.map((step, index) => {
           const completed = index < phaseIndex;
           const active = index === phaseIndex;
+          const revealed = completed || phase === "result";
+          const upcoming = !completed && !active;
           return (
             <motion.div
               key={`${step.winner.id}-${step.loser?.id ?? "final"}-${index}`}
@@ -234,12 +236,16 @@ function DuelBattleLog({ round, phase }: { round: Round; phase: RoundPhase }) {
               ].join(" ")}
             >
               <p className="text-[11px] font-black uppercase tracking-[0.16em] text-smoke">{step.time}</p>
-              <p className="mt-2 text-sm font-black leading-5 text-platinum">{step.title}</p>
-              <p className="mt-1 text-xs leading-5 text-smoke">{step.body}</p>
+              <p className="mt-2 text-sm font-black leading-5 text-platinum">
+                {revealed ? step.title : active ? step.activeTitle : step.pendingTitle}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-smoke">
+                {revealed ? step.body : active ? step.activeBody : step.pendingBody}
+              </p>
               <div className="mt-3 flex items-center gap-2">
-                <DuelMiniToken participant={step.winner} tone={duelLogColors[index % duelLogColors.length]} />
-                {step.loser ? <span className="text-sm font-black text-gold">›</span> : null}
-                {step.loser ? <DuelMiniToken participant={step.loser} muted tone={duelLogColors[(index + 3) % duelLogColors.length]} /> : null}
+                <DuelMiniToken participant={revealed ? step.winner : step.left} tone={duelLogColors[index % duelLogColors.length]} muted={upcoming} />
+                {step.right ? <span className="text-sm font-black text-gold">{revealed ? "›" : "×"}</span> : null}
+                {step.right ? <DuelMiniToken participant={revealed ? step.right : step.right} muted={upcoming || revealed} tone={duelLogColors[(index + 3) % duelLogColors.length]} /> : null}
               </div>
             </motion.div>
           );
@@ -274,21 +280,38 @@ function buildDuelBattleSteps(round: Round, winner: Round["participants"][number
       time: `00:${String(2 + index * 2).padStart(2, "0")}`,
       title: `${fight.winner.name} проходит дальше`,
       body: `${fight.loser.name} выбывает после столкновения.`,
+      activeTitle: "Дуэль в разгаре",
+      activeBody: `${fight.left.name} и ${fight.right.name} сходятся в центре арены.`,
+      pendingTitle: "Дуэль готовится",
+      pendingBody: "Пара еще не раскрыта. Ждем удар.",
       winner: fight.winner,
-      loser: fight.loser
+      loser: fight.loser,
+      left: fight.left,
+      right: fight.right
     })),
     {
       time: `00:${String(2 + fights.length * 2).padStart(2, "0")}`,
       title: "Финальная дуэль",
       body: winner.seatNumber ? `Победило ${winner.seatNumber} место.` : "Победитель удержал центр арены.",
+      activeTitle: "Финальная дуэль",
+      activeBody: "Последнее столкновение решает исход.",
+      pendingTitle: "Финал впереди",
+      pendingBody: "Главный бой еще не раскрыт.",
       winner,
-      loser: undefined
+      loser: undefined,
+      left: winner,
+      right: undefined
     }
   ];
 }
 
 function buildDuelBracket(participants: Round["participants"], finalWinner: Round["participants"][number]) {
-  const fights: Array<{ winner: Round["participants"][number]; loser: Round["participants"][number] }> = [];
+  const fights: Array<{
+    winner: Round["participants"][number];
+    loser: Round["participants"][number];
+    left: Round["participants"][number];
+    right: Round["participants"][number];
+  }> = [];
   let contenders = participants.slice(0, 10);
   let safety = 0;
 
@@ -302,7 +325,7 @@ function buildDuelBracket(participants: Round["participants"], finalWinner: Roun
         continue;
       }
       const pairWinner = chooseDuelStepWinner(first, second, finalWinner, fights.length);
-      fights.push({ winner: pairWinner, loser: pairWinner.id === first.id ? second : first });
+      fights.push({ winner: pairWinner, loser: pairWinner.id === first.id ? second : first, left: first, right: second });
       next.push(pairWinner);
     }
     contenders = next;
