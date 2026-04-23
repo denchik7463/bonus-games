@@ -1,94 +1,78 @@
-# WebSocket API (Room Realtime)
+# WebSocket: realtime по комнате
 
-Этот документ описывает realtime-канал комнаты: как подключаться, что приходит и как это использовать на фронтенде.
+Документ описывает, как подключиться к realtime-каналу комнаты и какие события приходят.
 
-## Endpoint
+## 1. Инструкция по запуску
 
-- URL: `ws://localhost:8081/ws/rooms?roomId=<ROOM_ID>&token=<JWT_TOKEN>`
-- Для HTTPS: `wss://...`
+Из корня проекта:
 
-Параметры query:
-- `roomId` — UUID комнаты
-- `token` — Bearer-токен пользователя (из `/api/auth/login`)
+```bash
+docker compose up --build
+```
 
-Если `roomId` или `token` не переданы/невалидны, соединение будет закрыто.
+Проверка backend:
 
-## Что отправляет сервер
+```bash
+curl -s http://localhost:8081/health
+```
 
-Сервер отправляет JSON-сообщения формата:
+Подготовьте токен через login:
+
+```bash
+TOKEN=$(curl -s -X POST "http://localhost:8081/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"secret123"}' | jq -r '.token')
+```
+
+## 2. Endpoint
+
+```text
+ws://localhost:8081/ws/rooms?roomId=<ROOM_ID>&token=<TOKEN>
+```
+
+Для HTTPS используйте `wss://...`.
+
+Параметры обязательны:
+
+- `roomId` - UUID комнаты
+- `token` - токен из `POST /api/auth/login`
+
+Если параметры не переданы или токен невалиден, соединение закрывается.
+
+## 3. Формат сообщения
+
+Сервер отправляет JSON вида:
 
 ```json
 {
   "type": "ROOM_STATE",
   "roomId": "67169950-88a5-4d7d-83e2-569ff1514971",
   "payload": {},
-  "sentAt": "2026-04-22T12:00:00.123Z"
+  "sentAt": "2026-04-23T10:00:00.123Z"
 }
 ```
 
 Поля:
-- `type` — тип события (`ROOM_STATE` или `ROOM_EVENTS`)
-- `roomId` — UUID комнаты
-- `payload` — полезная нагрузка
-- `sentAt` — время отправки события сервером (UTC)
 
-## Типы событий
+- `type` - тип сообщения (`ROOM_STATE` или `ROOM_EVENTS`)
+- `roomId` - UUID комнаты
+- `payload` - данные события
+- `sentAt` - время отправки (UTC)
 
-Значения поля `type`:
-- `ROOM_STATE` — текущее состояние комнаты (таймер, игроки, занятые места, статус).
-- `ROOM_EVENTS` — журнал событий комнаты.
+## 4. Какие события приходят
 
-Типы `eventType` внутри `ROOM_EVENTS.payload`:
-- `ROOM_CREATED`
-- `PLAYER_JOINED`
-- `BOOST_ACTIVATED`
-- `BOTS_FILLED`
-- `ROOM_FINISHED`
-- `ROOM_CANCELLED`
+### 4.1 `ROOM_STATE`
 
-## Частота отправки
+Текущее состояние комнаты:
 
-- `ROOM_STATE`: 
-  - сразу после подключения (initial snapshot)
-  - далее каждые ~1 секунду **только когда таймер активен**:
-    - `status` = `WAITING` или `FULL`
-    - `firstPlayerJoinedAt != null`
-    - `remainingSeconds > 0`
-  - дополнительно при изменениях в комнате (join/boost/finish/cancel/боты)
-- `ROOM_EVENTS`:
-  - initial snapshot при подключении
-  - при изменениях журнала событий комнаты
+- статус (`WAITING`, `FULL`, `FINISHED`, `CANCELLED`)
+- участники и их места
+- занятые/свободные места
+- таймер (`timerSeconds`, `remainingSeconds`)
+- параметры буста и расчетные метрики
+- `prizeFund`
 
-## ROOM_STATE payload
-
-`ROOM_STATE.payload` содержит актуальное состояние комнаты:
-
-- `roomId`, `shortId`
-- `status` (`WAITING`, `FULL`, `FINISHED`, `CANCELLED`)
-- `currentPlayers`, `maxPlayers`
-- `entryCost`, `prizeFund`
-- `boostPrice`, `boostWeight`
-- `currentChancePercent`, `chanceWithBoostPercent`, `boostAbsoluteGainPercent`
-- `timerSeconds` — длительность таймера
-- `remainingSeconds` — оставшееся время (или `null`, если таймер ещё не стартовал)
-- `occupiedSeats` — массив занятых мест
-- `freeSeats` — массив свободных мест
-- `createdAt`, `firstPlayerJoinedAt`, `startedAt`, `finishedAt`
-- `players` — массив участников
-
-`prizeFund` рассчитывается по формуле:
-
-`prizeFund = entryCost * maxPlayers * winnerPercent / 100`
-
-Формулы по шансу буста (на уровне комнаты):
-
-- `currentChancePercent = 100 / maxPlayers`
-- `chanceWithBoostPercent = (baseWeight + boostWeight) / (baseWeight * (maxPlayers - 1) + (baseWeight + boostWeight)) * 100`
-- `boostAbsoluteGainPercent = chanceWithBoostPercent - currentChancePercent`
-
-`baseWeight = 100`.
-
-### Пример ROOM_STATE
+Пример:
 
 ```json
 {
@@ -111,14 +95,14 @@
     "remainingSeconds": 43,
     "occupiedSeats": [1, 3],
     "freeSeats": [2, 4],
-    "createdAt": "2026-04-22T11:59:10.001",
-    "firstPlayerJoinedAt": "2026-04-22T11:59:20.100",
+    "createdAt": "2026-04-23T09:59:10.001",
+    "firstPlayerJoinedAt": "2026-04-23T09:59:20.100",
     "startedAt": null,
     "finishedAt": null,
     "players": [
       {
         "userId": "69e62862-7fd9-40f0-b135-5f6221e194a4",
-        "username": "denis",
+        "username": "alice",
         "walletReservationId": "2d90f7f8-ddea-467b-b5ce-9d24c49b88bc",
         "boostUsed": false,
         "boostReservationId": null,
@@ -127,32 +111,28 @@
         "playerOrder": 1,
         "winner": false,
         "status": "JOINED",
-        "joinTime": "2026-04-22T11:59:20.101"
-      },
-      {
-        "userId": "a1f8b8d4-ae57-4c14-a7f5-7f96a2b42d2f",
-        "username": "alex",
-        "walletReservationId": "b13d8ad4-4d8e-45f1-8ef0-cc3f3d721a8e",
-        "boostUsed": true,
-        "boostReservationId": "de0179ea-d8ef-4b05-9dea-bf850b157514",
-        "bot": false,
-        "roundId": "room-67169950-88a5-4d7d-83e2-569ff1514971-round-1",
-        "playerOrder": 3,
-        "winner": false,
-        "status": "JOINED",
-        "joinTime": "2026-04-22T11:59:31.300"
+        "joinTime": "2026-04-23T09:59:20.101"
       }
     ]
   },
-  "sentAt": "2026-04-22T11:59:37.000Z"
+  "sentAt": "2026-04-23T09:59:37.000Z"
 }
 ```
 
-## ROOM_EVENTS payload
+### 4.2 `ROOM_EVENTS`
 
-`ROOM_EVENTS.payload` — массив событий журнала комнаты (RoundEventLog), отсортированный по времени.
+События из журнала комнаты (`round_event_logs`).
 
-### Пример ROOM_EVENTS
+`eventType` может быть, например:
+
+- `ROOM_CREATED`
+- `PLAYER_JOINED`
+- `BOOST_ACTIVATED`
+- `BOTS_FILLED`
+- `ROOM_FINISHED`
+- `ROOM_CANCELLED`
+
+Пример:
 
 ```json
 {
@@ -167,48 +147,102 @@
       "title": "Комната создана",
       "description": "Создана новая игровая комната.",
       "payloadJson": "{\"maxPlayers\":4,\"entryCost\":100,\"boostAllowed\":true,\"timerSeconds\":60}",
-      "createdAt": "2026-04-22T11:59:10.005"
-    },
-    {
-      "id": "7f81677f-87ab-4b11-bf13-2fcf9a31dbb7",
-      "roomId": "67169950-88a5-4d7d-83e2-569ff1514971",
-      "gameResultId": null,
-      "eventType": "PLAYER_JOINED",
-      "title": "Игрок вошёл в комнату",
-      "description": "Игрок успешно вошел и места зарезервированы.",
-      "payloadJson": "{\"username\":\"denis\",\"seats\":\"[1]\"}",
-      "createdAt": "2026-04-22T11:59:20.120"
+      "createdAt": "2026-04-23T09:59:10.005"
     }
   ],
-  "sentAt": "2026-04-22T11:59:37.002Z"
+  "sentAt": "2026-04-23T09:59:37.002Z"
 }
 ```
 
-## Минимальный пример подключения (frontend)
+## 5. Частота отправки
 
-```js
+### 5.1 `ROOM_STATE`
+
+Отправляется:
+
+1. Сразу при подключении (initial snapshot).
+2. Каждую 1 секунду, только если таймер активен:
+- `status` в `WAITING` или `FULL`
+- `firstPlayerJoinedAt != null`
+- `remainingSeconds > 0`
+3. Дополнительно при изменениях комнаты (join/boost/finish/cancel/боты).
+
+### 5.2 `ROOM_EVENTS`
+
+Отправляется:
+
+1. Сразу при подключении (initial snapshot).
+2. При добавлении новых событий в журнал комнаты.
+
+## 6. Минимальный пример на frontend
+
+```javascript
 const ws = new WebSocket(
   `ws://localhost:8081/ws/rooms?roomId=${encodeURIComponent(roomId)}&token=${encodeURIComponent(token)}`
 );
 
+ws.onopen = () => {
+  console.log("ws connected");
+};
+
 ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
+  const message = JSON.parse(event.data);
 
-  if (data.type === "ROOM_STATE") {
-    // data.payload.remainingSeconds
-    // data.payload.occupiedSeats
-    // data.payload.players
+  if (message.type === "ROOM_STATE") {
+    const state = message.payload;
+    console.log("remaining", state.remainingSeconds);
+    console.log("occupied", state.occupiedSeats);
+    console.log("players", state.players);
   }
 
-  if (data.type === "ROOM_EVENTS") {
-    // data.payload -> массив событий
+  if (message.type === "ROOM_EVENTS") {
+    console.log("events", message.payload);
   }
+};
+
+ws.onclose = () => {
+  console.log("ws disconnected");
+};
+
+ws.onerror = (error) => {
+  console.error("ws error", error);
 };
 ```
 
-## Рекомендации для UI
+## 7. Рекомендации для UI
 
-- Таймер: использовать `payload.remainingSeconds` как источник истины.
-- Места: брать из `payload.occupiedSeats`/`payload.freeSeats`.
-- Статусы комнаты: реагировать на `WAITING/FULL/FINISHED/CANCELLED`.
-- История: отображать `ROOM_EVENTS.payload` как журнал событий.
+- Таймер всегда рисуйте из `ROOM_STATE.payload.remainingSeconds`.
+- Список занятых мест берите из `occupiedSeats`.
+- Состояние комнаты переключайте по `status`.
+- Журнал событий показывайте из `ROOM_EVENTS.payload`.
+- Не используйте HTTP polling для таймера, если WebSocket подключен.
+
+## 8. Типичные проблемы
+
+### Проблема: сразу `close` после подключения
+
+Проверьте:
+
+- в URL есть `roomId`
+- в URL есть `token`
+- `token` не протух
+
+### Проблема: нет обновлений каждую секунду
+
+Это нормально, если:
+
+- в комнате еще никто не вошел (`firstPlayerJoinedAt = null`)
+- таймер уже закончился
+- статус не `WAITING/FULL`
+
+### Проблема: CORS в браузере
+
+Разрешенные origin настроены в `WebSocketConfig`.
+Для локальной разработки используйте один из разрешенных:
+
+- `http://localhost:63342`
+- `http://127.0.0.1:63342`
+- `http://localhost:3100`
+- `http://127.0.0.1:3100`
+- `http://localhost:8081`
+- `http://127.0.0.1:8081`
