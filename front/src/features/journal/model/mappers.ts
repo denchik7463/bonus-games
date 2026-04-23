@@ -85,21 +85,33 @@ function mapParticipants(players: JournalParticipantDto[]): Participant[] {
 }
 
 function findWinner(entry: JournalEntryDto, participants: Participant[], sourcePlayers: JournalParticipantDto[]) {
-  const winnerSeat = normalizeWinnerSeat(entry.winnerPositionIndex, participants);
-  const sourceWinner = sourcePlayers.find((player) => player.winner || player.status === "WINNER");
+  const sourceWinner = sourcePlayers.find(isSourceWinner);
   const winnerExternalId = entry.winnerPlayerExternalId ?? sourceWinner?.playerExternalId;
   const winnerName = entry.winnerPlayerName ?? sourceWinner?.username;
-  return participants.find((participant) => participant.seatNumber === winnerSeat)
-    ?? participants.find((participant) => participant.userId === winnerExternalId || participant.id === winnerExternalId)
-    ?? participants.find((participant) => participant.name === winnerName)
+  const winnerSeat = normalizeWinnerSeat(entry.winnerPositionIndex, participants, sourcePlayers);
+
+  return participants.find((participant) => matchesParticipantByExternalId(participant, winnerExternalId))
+    ?? participants.find((participant) => matchesParticipantByName(participant, winnerName))
+    ?? participants.find((participant) => {
+      if (!sourceWinner) return false;
+      return matchesParticipantByExternalId(participant, sourceWinner.playerExternalId)
+        || matchesParticipantByName(participant, sourceWinner.username);
+    })
+    ?? participants.find((participant) => Boolean(participant.winner) || participant.status?.toUpperCase() === "WINNER")
+    ?? participants.find((participant) => participant.seatNumber === winnerSeat)
     ?? participants.find((participant) => {
       const source = sourcePlayers.find((player) => player.playerExternalId === participant.userId || player.username === participant.name);
-      return source?.winner;
+      return Boolean(source && isSourceWinner(source));
     });
 }
 
 function normalizeWinnerFlags(participants: Participant[], winner: Participant | undefined) {
-  if (!winner) return participants.map((participant) => ({ ...participant, winner: false }));
+  if (!winner) {
+    return participants.map((participant) => ({
+      ...participant,
+      winner: Boolean(participant.winner) || participant.status?.toUpperCase() === "WINNER"
+    }));
+  }
   return participants.map((participant) => ({
     ...participant,
     winner: participant.id === winner.id || (typeof winner.seatNumber === "number" && participant.seatNumber === winner.seatNumber)
@@ -306,10 +318,26 @@ function buildUniqueSeats(players: JournalParticipantDto[]) {
   });
 }
 
-function normalizeWinnerSeat(value: number | undefined, participants: Participant[]) {
+function normalizeWinnerSeat(value: number | undefined, participants: Participant[], sourcePlayers: JournalParticipantDto[]) {
   if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  const sourceLooksZeroBased = sourcePlayers.some((player) => player.positionIndex === 0);
+  if (sourceLooksZeroBased) return Math.max(1, value + 1);
   const zeroBased = !participants.some((participant) => participant.seatNumber === value) && participants.some((participant) => participant.seatNumber === value + 1);
   return Math.max(1, zeroBased ? value + 1 : value);
+}
+
+function isSourceWinner(player: JournalParticipantDto) {
+  return Boolean(player.winner) || player.status?.toUpperCase() === "WINNER";
+}
+
+function matchesParticipantByExternalId(participant: Participant, externalId: string | undefined) {
+  if (!externalId) return false;
+  return participant.userId === externalId || participant.id === externalId;
+}
+
+function matchesParticipantByName(participant: Participant, name: string | undefined) {
+  if (!name) return false;
+  return participant.name === name;
 }
 
 function positiveNumber(value?: number) {
